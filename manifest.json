@@ -4,6 +4,7 @@
   "name": "weatheride-au",
   "version": "0.1.0",
   "author": "junkyard82",
+  "license": "MIT",
   "description": "Bar widget showing which of the next 1-7 days (default 5) are good days to ride to work, using whole-day Australian Bureau of Meteorology rain data (chance of rain AND total rainfall). Fork of weatheride, independent of other plugins.",
   "kinds": [
     "bar-widget"

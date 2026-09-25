@@ -217,8 +217,10 @@ test/             node:test suite for Model.js + BOM-shaped fixtures
 
 ## License
 
-MIT. `bin/bom-api` is forked from the MIT-licensed
+MIT — see [LICENSE](LICENSE). `bin/bom-api` is forked from the MIT-licensed
 [`io.github.zuccs.bom-weather`](https://github.com/zuccs/omarchy-bom-weather)
-plugin, and the widget architecture is carried from `weatheride` (MIT). Not
-affiliated with the Bureau of Meteorology or Omarchy. Weather data
-© Commonwealth of Australia, Bureau of Meteorology.
+plugin (© 2026 Daniel Zuccon, attributed in LICENSE); everything else is
+original work by junkyard82 — the successor of his earlier unlicensed
+`weatheride` prototype, of which this is a new version. Not affiliated with
+the Bureau of Meteorology or Omarchy. Weather data © Commonwealth of
+Australia, Bureau of Meteorology.
