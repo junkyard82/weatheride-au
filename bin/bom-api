@@ -1,0 +1,437 @@
+#!/usr/bin/env bash
+#
+# bom-api — the only thing in this plugin that talks to the network.
+#
+# A thin bridge between the Omarchy weatheride-au bar widget and the Bureau of
+# Meteorology's public API (api.weather.bom.gov.au — the same API the BOM app
+# uses; no key, no account). Keeping it in one small bash script means the
+# behaviour is auditable in a minute and testable from any terminal.
+#
+# FORKED from the io.github.zuccs.bom-weather plugin (MIT), retargeted for
+# weatheride-au so it is fully independent of bom-weather: its own state dir
+# (~/.local/state/omarchy/weatheride-au), its own User-Agent, and its own
+# plugin id in the setup messages. Works even if bom-weather is uninstalled.
+#
+# Usage:
+#   bom-api weather <location> [--max-age SECONDS]
+#   bom-api resolve <location>
+#   bom-api status
+#
+# <location> is free text: a suburb, town or postcode, optionally with a state
+# ("Brighton VIC", "3186", "Katoomba"). A state or postcode in the query
+# filters the Bureau's search results; the first match wins.
+#
+# Every command prints exactly one JSON object on stdout. API and network
+# failures are reported inside that object as {"ok":false,"error":...} with
+# exit code 0, so the caller has one code path; exit 64 means a usage error.
+#
+# The API is unofficial: undocumented, unversioned in practice, and its
+# responses carry a BOM copyright notice. This bridge is polite with it — an
+# honest User-Agent, a floor on the refresh rate upstream in the widget, and a
+# cache under $XDG_STATE_HOME/omarchy/weatheride-au so a shell restart or a
+# panel open never costs a request. Location lookups are cached indefinitely
+# (suburbs do not move).
+#
+# Everything this script reads is treated as hostile: the state directory sits
+# at a predictable path, so no file in it is opened through a symlink or
+# truncated on open, and neither a cache nor an HTTP body is handed to jq
+# before its size is bounded.
+
+set -euo pipefail
+
+readonly API="https://api.weather.bom.gov.au/v1"
+readonly USER_AGENT="weatheride-au/0.1 (io.github.junkyard82.weatheride-au bar widget)"
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/weatheride-au"
+
+# Nothing legitimate here is close to this big: the largest response is the
+# hourly forecast (73 periods, ~60 KB). It is the ceiling on any single thing
+# we read into memory or feed to jq.
+readonly MAX_BYTES=$((1024 * 1024))
+
+usage() {
+  sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  exit 64
+}
+
+fail() { # <code> <message>  — machine-readable failure, exit 0
+  jq -cn --arg code "$1" --arg message "$2" '{ok:false, error:$code, message:$message}'
+  exit 0
+}
+
+need() {
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || fail "missing-tool" "Required tool not found: $tool"
+  done
+}
+
+# ---- State directory ---------------------------------------------------------
+#
+# $STATE_DIR/... are guessable paths that any same-uid process can create ahead
+# of us. A planted symlink there would otherwise make us truncate, read or
+# write whatever it points at, so every open goes through these helpers.
+
+readonly STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+ensure_state_dir() {
+  [[ -L "$STATE_BASE/omarchy" || -L "$STATE_DIR" ]] \
+    && fail "unsafe-state" "$STATE_DIR is reached through a symlink; refusing to use it."
+  mkdir -p "$STATE_DIR" 2>/dev/null || fail "unsafe-state" "Could not create $STATE_DIR"
+  [[ -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] \
+    || fail "unsafe-state" "$STATE_DIR is not a plain directory; refusing to use it."
+  local real_dir real_base
+  real_dir="$(cd "$STATE_DIR" 2>/dev/null && pwd -P)" || fail "unsafe-state" "Cannot resolve $STATE_DIR"
+  real_base="$(cd "$STATE_BASE" 2>/dev/null && pwd -P)" || fail "unsafe-state" "Cannot resolve $STATE_BASE"
+  [[ "$real_dir" == "$real_base/omarchy/weatheride-au" ]] \
+    || fail "unsafe-state" "$STATE_DIR resolves outside $STATE_BASE; refusing to use it."
+  chmod 700 "$STATE_DIR" 2>/dev/null || true
+}
+
+# A path we may open: either absent, or a plain regular file — never a symlink,
+# fifo or device.
+safe_path() { # <path>
+  [[ -L "$1" ]] && return 1
+  [[ -e "$1" && ! -f "$1" ]] && return 1
+  return 0
+}
+
+file_size() { # <path> → bytes, 0 if unknown
+  stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null || echo 0
+}
+
+usable_cache() { # <path>
+  safe_path "$1" || return 1
+  [[ -s "$1" ]] || return 1
+  (( $(file_size "$1") <= MAX_BYTES )) || return 1
+  return 0
+}
+
+# Bounded read: head caps the bytes that reach jq even if the file grows or is
+# swapped between check and read, and timeout stops a swap to a FIFO from
+# blocking us forever.
+cache_bytes() { # <path>
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5 head -c "$MAX_BYTES" "$1"
+  else
+    head -c "$MAX_BYTES" "$1"
+  fi
+}
+
+file_age() { # <path> → seconds since modification, or a huge number
+  local now mtime
+  now="$(date +%s)"
+  if mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)"; then
+    echo $(( now - mtime ))
+  else
+    echo 999999999
+  fi
+}
+
+write_cache() { # <path> <json>
+  ensure_state_dir
+  safe_path "$1" || fail "unsafe-state" "Refusing to write through $1"
+  local tmp
+  tmp="$(mktemp "$STATE_DIR/.tmp.XXXXXX")"
+  (umask 077; printf '%s\n' "$2" > "$tmp")
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$1"   # rename(2) replaces the name, it never follows a symlink
+}
+
+# Read a cache through jq. Output is captured and printed only if jq succeeds,
+# so a corrupt cache can never put one JSON document on stdout and then let a
+# second one follow it.
+emit_cache() { # <cache-path> <jq-filter> [jq-args...]
+  local path="$1" filter="$2" out
+  shift 2
+  usable_cache "$path" || return 1
+  out="$(cache_bytes "$path" | jq -c "$@" "$filter" 2>/dev/null)" || return 1
+  [[ -n "$out" && "$out" != *$'\n'* ]] || return 1
+  printf '%s\n' "$out"
+}
+
+serve_cache_or_fail() { # <cache-path> <error-code> <message>
+  if emit_cache "$1" '. + {stale:true, error:$code, message:$message}' --arg code "$2" --arg message "$3"; then
+    exit 0
+  fi
+  fail "$2" "$3"
+}
+
+# ---- HTTP --------------------------------------------------------------------
+#
+# The response body is written to a private temp file through `head -c`, so the
+# most we ever store or parse is MAX_BYTES no matter what the server sends.
+# The status code comes back on stderr via %{stderr} so it survives that cap.
+#
+# The scratch files are created once, in the main shell, before any fetch runs
+# — several helpers below are called inside $(...) subshells, where an EXIT
+# trap would not fire, so nothing in a subshell may be the thing that creates
+# a temp file.
+
+BODY_FILE=""
+CODE_FILE=""
+HTTP_CODE=""
+cleanup() { [[ -n "$BODY_FILE" ]] && rm -f "$BODY_FILE" "$CODE_FILE"; return 0; }
+trap cleanup EXIT
+
+scratch_files() {
+  [[ -n "$BODY_FILE" ]] && return 0
+  BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/bom-api.body.XXXXXX")"
+  CODE_FILE="$(mktemp "${TMPDIR:-/tmp}/bom-api.code.XXXXXX")"
+}
+
+request() { # <url> → 0 with $HTTP_CODE set; body in $BODY_FILE
+  local url="$1"
+  : >"$BODY_FILE"
+  : >"$CODE_FILE"
+  local -a st
+  curl -s --proto '=https' --max-time 15 --max-filesize "$MAX_BYTES" \
+       -H "Accept: application/json" -H "User-Agent: $USER_AGENT" \
+       -o - -w '%{stderr}%{http_code}' "$url" 2>"$CODE_FILE" \
+    | head -c "$MAX_BYTES" >"$BODY_FILE" && st=(0 0) || st=("${PIPESTATUS[@]}")
+  HTTP_CODE="$(tr -cd '0-9' <"$CODE_FILE" | head -c 3)"
+  [[ "${st[1]}" == 0 ]] || return 1                        # could not write the body
+  case "${st[0]}" in
+    0) ;;
+    # 23 = head closed the pipe, 63 = --max-filesize: the body hit the cap.
+    23|63) (( $(file_size "$BODY_FILE") >= MAX_BYTES )) || return 1 ;;
+    *) return 1 ;;
+  esac
+  [[ -n "$HTTP_CODE" && "$HTTP_CODE" != "000" ]]
+}
+
+response_body() {
+  [[ -s "$BODY_FILE" ]] && cat "$BODY_FILE"
+  return 0
+}
+
+# GET one BOM endpoint and print its validated .data on stdout.
+# Return: 0 ok · 1 transport failure (no route, timeout, TLS) · 2 the endpoint
+# answered but not usefully (non-200, oversized, or .data fails the jq check).
+fetch_data() { # <url> <jq-type-check>
+  local url="$1" check="$2" body
+  request "$url" || return 1
+  (( $(file_size "$BODY_FILE") >= MAX_BYTES )) && return 2
+  [[ "$HTTP_CODE" == "200" ]] || return 2
+  body="$(response_body)"
+  jq -e ".data | $check" <<<"$body" >/dev/null 2>&1 || return 2
+  jq -c '.data' <<<"$body"
+}
+
+# ---- Location resolution -------------------------------------------------------
+#
+# The query is free text from the widget's settings. A state token or a 4-digit
+# postcode in it becomes a filter on the Bureau's search results (its search
+# endpoint itself ignores state suffixes: "brighton vic" matches nothing,
+# "brighton" matches a Brighton in four states).
+#
+# Resolved locations are cached in locations.json keyed by the normalised
+# query, indefinitely — suburbs do not move.
+
+normalize_query() { # <query> → lowercase, single-spaced, bounded
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' \
+    | sed 's/^ //; s/ $//' | head -c 80
+}
+
+# Prints the location JSON on success; prints FAIL:<reason> on failure (this
+# runs inside $(...) subshells, so a variable could not carry the reason out).
+resolve_location() { # <normalized-query>
+  local query="$1" state="" postcode="" term="" word
+  local -a words=()
+  read -r -a words <<<"$query" || true   # read never glob-expands, unlike `for word in $query`
+  for word in "${words[@]}"; do
+    case "$word" in
+      vic|nsw|qld|sa|wa|tas|nt|act) state="$(printf '%s' "$word" | tr '[:lower:]' '[:upper:]')" ;;
+      [0-9][0-9][0-9][0-9]) postcode="$word" ;;
+      *) term="$term $word" ;;
+    esac
+  done
+  term="${term# }"
+  [[ -z "$term" ]] && term="$postcode"
+  if [[ -z "$term" ]]; then
+    echo "FAIL:empty"
+    return 0
+  fi
+
+  local locations_cache="$STATE_DIR/locations.json"
+  local cached
+  if cached="$(emit_cache "$locations_cache" '.[$q] | select(type == "object")' --arg q "$query")" \
+     && [[ -n "$cached" ]]; then
+    printf '%s\n' "$cached"
+    return 0
+  fi
+
+  local encoded
+  encoded="$(jq -rn --arg t "$term" '$t | @uri')"
+  if ! request "$API/locations?search=$encoded"; then
+    echo "FAIL:network"
+    return 0
+  fi
+  if [[ "$HTTP_CODE" != "200" ]] || (( $(file_size "$BODY_FILE") >= MAX_BYTES )); then
+    echo "FAIL:http-$HTTP_CODE"
+    return 0
+  fi
+  local match
+  match="$(response_body | jq -c --arg state "$state" --arg pc "$postcode" '
+    .data | select(type == "array")
+    | map(select(type == "object"))
+    | map(select($state == "" or .state == $state))
+    | map(select($pc == "" or .postcode == $pc))
+    | .[0] | select(type == "object")
+    | {name, state, postcode, geohash}' 2>/dev/null)" || match=""
+  if [[ -z "$match" || "$match" == *$'\n'* ]]; then
+    echo "FAIL:not-found"
+    return 0
+  fi
+
+  # Merge into the cache, keeping the newest 50 queries; a cache that has
+  # rotted is simply replaced.
+  local merged existing="{}"
+  if usable_cache "$locations_cache"; then
+    existing="$(cache_bytes "$locations_cache" | jq -c 'select(type == "object")' 2>/dev/null)" || existing="{}"
+    [[ -n "$existing" ]] || existing="{}"
+  fi
+  merged="$(jq -cn --argjson m "$existing" --argjson loc "$match" --arg q "$query" \
+    '$m + {($q): $loc} | to_entries | .[-50:] | from_entries' 2>/dev/null)" || merged=""
+  [[ -n "$merged" ]] && write_cache "$locations_cache" "$merged"
+  printf '%s\n' "$match"
+}
+
+resolve_failure() { # <normalized-query> <reason>  — always exits
+  case "$2" in
+    empty) fail "no-location" "No location set. Set one with: omarchy bar set io.github.junkyard82.weatheride-au location \"Brighton VIC\"" ;;
+    not-found) fail "not-found" "The Bureau has no location matching \"$1\". Try a nearby suburb, add the state, or use a postcode." ;;
+    network) fail "network" "Could not reach api.weather.bom.gov.au to look up \"$1\"." ;;
+    *) fail "lookup" "Location lookup failed ($2)." ;;
+  esac
+}
+
+require_location() { # <normalized-query> → sets LOCATION, or exits via resolve_failure
+  LOCATION="$(resolve_location "$1")"
+  case "$LOCATION" in
+    FAIL:*) resolve_failure "$1" "${LOCATION#FAIL:}" ;;
+    "") resolve_failure "$1" "unknown" ;;
+  esac
+}
+LOCATION=""
+
+cmd_resolve() {
+  need curl jq
+  (($# == 1)) || usage
+  ensure_state_dir
+  scratch_files
+  local query
+  query="$(normalize_query "$1")"
+  require_location "$query"
+  jq -cn --argjson loc "$LOCATION" --arg q "$query" '{ok:true, query:$q, location:$loc}'
+}
+
+cmd_weather() {
+  need curl jq
+  (($#)) || usage
+  local query_raw="$1" max_age=0
+  shift
+  while (($#)); do
+    case "$1" in
+      --max-age) shift; max_age="${1:-0}" ;;
+      --max-age=*) max_age="${1#--max-age=}" ;;
+      *) usage ;;
+    esac
+    shift
+  done
+  [[ "$max_age" =~ ^[0-9]+$ ]] || usage
+
+  ensure_state_dir
+  scratch_files
+  local query
+  query="$(normalize_query "$query_raw")"
+  [[ -n "$query" ]] || fail "no-location" "No location set. Set one with: omarchy bar set io.github.junkyard82.weatheride-au location \"Brighton VIC\""
+
+  # One panel instance exists per monitor and they all poll on the same
+  # schedule. Serialise callers so the first one fetches and the rest find a
+  # fresh cache inside the lock — several monitors cost one round of requests.
+  # The lock is taken on the state directory itself (opened read-only), so
+  # there is no lock file at a guessable path to plant or truncate.
+  if command -v flock >/dev/null 2>&1 && exec 9<"$STATE_DIR" 2>/dev/null; then
+    flock -w 30 9 || true
+  fi
+
+  require_location "$query"
+  local geohash geohash6
+  geohash="$(jq -r '.geohash // ""' <<<"$LOCATION" | tr -cd '0-9a-z' | head -c 7)"
+  (( ${#geohash} >= 6 )) || fail "bad-location" "The Bureau returned a location without a usable geohash."
+  geohash6="${geohash:0:6}"
+  local cache="$STATE_DIR/weather-$geohash6.json"
+
+  # A forced refresh (--max-age 0) still treats a cache under 10 s old as
+  # fresh, so a broadcast refresh across monitors is a single round. The cached
+  # response must have been fetched for this same query, or the panel would
+  # chase its own tail after a settings change.
+  local effective_max_age="$max_age"
+  (( effective_max_age < 10 )) && effective_max_age=10
+  if usable_cache "$cache" && (( $(file_age "$cache") < effective_max_age )) \
+     && emit_cache "$cache" 'select(.query == $q) + {cached:true}' --arg q "$query"; then
+    return 0
+  fi
+
+  # Four endpoints, one JSON out. The daily forecast is the core — without it,
+  # serve the cache or fail. Observations, the hourly forecast and the warnings
+  # degrade on their own: obs to null (a remote town may simply have no nearby
+  # station), hourly to [], warnings to null so the caller can tell "unknown"
+  # from "none" and keep showing the warnings it already had.
+  local daily obs hourly warnings rc
+  rc=0; daily="$(fetch_data "$API/locations/$geohash6/forecasts/daily" 'type == "array" and length > 0')" || rc=$?
+  (( rc == 0 )) || serve_cache_or_fail "$cache" "network" "Could not fetch the BOM forecast for \"$query\"."
+  rc=0; obs="$(fetch_data "$API/locations/$geohash6/observations" 'type == "object"')" || rc=$?
+  if (( rc == 1 )); then
+    serve_cache_or_fail "$cache" "network" "Could not fetch BOM observations."
+  elif (( rc == 2 )); then
+    obs="null"
+  fi
+  hourly="$(fetch_data "$API/locations/$geohash6/forecasts/hourly" 'type == "array"')" || hourly="[]"
+  warnings="$(fetch_data "$API/locations/$geohash6/warnings" 'type == "array"')" || warnings="null"
+
+  local out
+  out="$(jq -cn --argjson now "$(date +%s)" --arg q "$query" \
+      --argjson loc "$LOCATION" --argjson obs "$obs" --argjson daily "$daily" \
+      --argjson hourly "$hourly" --argjson warnings "$warnings" '
+    {ok:true, query:$q, fetchedAt:$now, cached:false, stale:false,
+     location:$loc,
+     observations:$obs,
+     daily:($daily[0:9] | map(select(type == "object"))),
+     hourly:($hourly[0:96] | map(select(type == "object"))),
+     warnings:(if $warnings == null then null
+               else ($warnings[0:20] | map(select(type == "object"))) end)}' 2>/dev/null)" \
+    || serve_cache_or_fail "$cache" "bad-response" "The Bureau returned a forecast we could not read."
+  write_cache "$cache" "$out"
+  printf '%s\n' "$out"
+}
+
+cmd_status() {
+  need jq
+  local locations=0 caches=0 newest=null f at
+  if usable_cache "$STATE_DIR/locations.json"; then
+    locations="$(cache_bytes "$STATE_DIR/locations.json" | jq -r 'if type == "object" then length else 0 end' 2>/dev/null | head -n1 || echo 0)"
+    [[ "$locations" =~ ^[0-9]+$ ]] || locations=0
+  fi
+  for f in "$STATE_DIR"/weather-*.json; do
+    [[ -e "$f" ]] || continue
+    usable_cache "$f" || continue
+    caches=$((caches + 1))
+    at="$(cache_bytes "$f" | jq -r '(.fetchedAt // null) | tostring' 2>/dev/null | head -n1 || true)"
+    if [[ "$at" =~ ^[0-9]+$ ]] && { [[ "$newest" == null ]] || (( at > newest )); }; then
+      newest="$at"
+    fi
+  done
+  jq -cn --arg stateDir "$STATE_DIR" --argjson locations "$locations" \
+    --argjson caches "$caches" --argjson lastFetchedAt "$newest" \
+    '{ok:true, stateDir:$stateDir, resolvedLocations:$locations, weatherCaches:$caches, lastFetchedAt:$lastFetchedAt}'
+}
+
+(($#)) || usage
+cmd="$1"; shift
+case "$cmd" in
+  weather) cmd_weather "$@" ;;
+  resolve) cmd_resolve "$@" ;;
+  status) cmd_status "$@" ;;
+  -h|--help|help) usage ;;
+  *) usage ;;
+esac
