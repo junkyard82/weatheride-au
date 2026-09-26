@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Ui
+import qs.Commons
 import "Model.js" as Model
 
 // weatheride-au — rideability row (configurable day count, 1–7, default 5),
@@ -203,7 +204,14 @@ BarWidget {
     if (!forecastProc.running) root.fetchForecast()
   }
 
-  implicitWidth: dotRow.implicitWidth
+  // Standard bar-pill breathing room on the OUTER edges only: the dot group
+  // gets the same style-scaled side margins as a single widget pill
+  // (WidgetButton default horizontalMargin 8.5; clock 8.75, powerdeck 7.5,
+  // fronius pillMargin Style.spaceReal(8.5)) instead of the dots' own 2px
+  // edge margins sitting against its neighbours. Spacing BETWEEN the dots
+  // stays tight (horizontalMargin: 2 on each dot below).
+  readonly property real pillMargin: Style.spaceReal(8.5)
+  implicitWidth: dotRow.implicitWidth + pillMargin * 2
   implicitHeight: dotRow.implicitHeight
 
   // Settings panel (Panel.qml), the omarchy.weather panelLoader pattern.
@@ -251,6 +259,7 @@ BarWidget {
   // settings panel.
   Row {
     id: dotRow
+    anchors.centerIn: parent
     Repeater {
       model: root.dayStates.length
       WidgetButton {
