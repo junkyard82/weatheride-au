@@ -41,6 +41,11 @@ Panel {
 
   // Location from this widget's shell.json entry (base setting() helper).
   readonly property string location: String(setting("location", "") || "")
+  // Live shell.json patches (omarchy bar set …) reach this panel through the
+  // injected settings object. When the location appears/changes (e.g. the
+  // setup command was run while this panel is open) re-fetch so the preview
+  // comes up without closing/reopening. refresh() no-ops while closed.
+  onLocationChanged: root.refresh()
   readonly property string scriptPath: String(Qt.resolvedUrl("bin/bom-api")).replace(/^file:\/\//, "")
 
   function open() {
@@ -164,6 +169,14 @@ Panel {
     if (root.fetchAttempts < root.maxFetchAttempts) fetchRetryTimer.start()
   }
 
+  // ---- setup (new-install QoL): copy the location command from the
+  // "no location set" section (mirrors bom-weather's copySetupCommand). ----
+  function copySetupCommand() {
+    Quickshell.execDetached(["wl-copy", Model.SETUP_COMMAND])
+    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "weatheride-au", "-g", "\u{F012F}",
+      "Command copied", "Paste it in a terminal with your suburb — the bar fetches automatically"])
+  }
+
   // ---- Save (save-on-close): close() calls this when dirty. jq builds the
   // JSON (validated numbers only — nothing user-shaped ever passes through
   // the shell), tee writes the mktemp file in the target directory, mv is
@@ -227,7 +240,7 @@ Panel {
           }
           Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.location
+            text: root.location !== "" ? root.location : "no location set"
             color: root.bar.foreground
             opacity: 0.5
             font.family: root.bar.fontFamily
@@ -237,12 +250,75 @@ Panel {
 
         PanelSeparator {}
 
+        // ---- Setup: no location configured yet (new-install QoL, mirrors
+        // bom-weather's "Location needed" section). The forecast preview is
+        // meaningless without a location, so it is hidden (its visible:false
+        // gates below) while this section is shown instead.
+        Column {
+          visible: root.location === ""
+          width: parent.width
+          spacing: Style.space(8)
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "No location set. Run this command, substituting in your town or city name:"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+          }
+
+          Rectangle {
+            width: parent.width
+            height: setupCommand.implicitHeight + Style.space(16)
+            radius: Style.cornerRadius
+            color: Style.normalFillFor(root.bar.foreground, Color.accent)
+
+            Text {
+              id: setupCommand
+              textFormat: Text.PlainText
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.margins: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              text: Model.SETUP_COMMAND
+              wrapMode: Text.WrapAnywhere
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          Button {
+            text: "Copy command"
+            iconText: "\u{F012F}"   // nf-md-content_copy
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            bordered: true
+            onClicked: root.copySetupCommand()
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "Ambiguous name? Add the state (\"Brighton VIC\") or use the postcode. The bar and this panel pick the new location up automatically."
+            color: root.bar.foreground
+            opacity: 0.5
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+        }
+
         // ---------- Live preview (same glyphs as the bar dots) ----------
         PanelSectionHeader {
+          visible: root.location !== ""
           text: "FORECAST"
         }
 
         Row {
+          visible: root.location !== ""
           spacing: Style.space(14)
 
           Repeater {
@@ -279,7 +355,7 @@ Panel {
         Text {
           width: parent.width
           horizontalAlignment: Text.AlignLeft
-          visible: root.previewStates[0].hasData
+          visible: root.previewStates[0].hasData && root.location !== ""
           text: Model.formatTooltip(root.previewStates)
           color: root.bar.foreground
           opacity: 0.5

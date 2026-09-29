@@ -197,7 +197,7 @@ BarWidget {
     if (!root.location) {
       if (!root.locationWarned) {
         root.locationWarned = true
-        console.warn('weatheride-au: no location set — run: omarchy bar set io.github.junkyard82.weatheride-au location "Brighton VIC"')
+        console.warn("weatheride-au: no location set — run: " + Model.SETUP_COMMAND)
       }
       return
     }
@@ -269,7 +269,10 @@ BarWidget {
              ? (root.dayStates[index].rideable ? root.rideGlyph : root.rainGlyph)
              : root.unknownGlyph
         dimmed: !root.dayStates[index].hasData || !root.dayStates[index].rideable
-        tooltipText: root.debugTooltip
+        // New-install QoL (mirrors bom-weather's "location not set" hint):
+        // with no location configured the tooltip says so instead of showing
+        // the placeholder; the panel (left-click) has the setup command.
+        tooltipText: root.location === "" ? "weatheride-au · location not set" : root.debugTooltip
         horizontalMargin: 2
         onPressed: function(b) { if (b === Qt.LeftButton) root.togglePanel() }
       }

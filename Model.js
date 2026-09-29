@@ -251,3 +251,8 @@ function formatTooltip(states) {
 // reads its location from the widget's own shell.json setting
 // (`setting("location", ...)`), not from omarchy.weather's weather.json, so
 // it has no dependency on that file (user decision: fully independent).
+
+// The exact setup command the panel's "no location set" section shows (and
+// its Copy button copies) — mirrors bom-weather's Model.SETUP_COMMAND. Keep
+// the plugin id in sync with moduleName in BarWidget.qml/Panel.qml.
+var SETUP_COMMAND = "omarchy bar set io.github.junkyard82.weatheride-au location \"your town or city name\""
