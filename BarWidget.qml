@@ -20,7 +20,7 @@ import "Model.js" as Model
 // last-good exists — then back to 2 h on success. A config-file change
 // (weatheride-au.json, watched) re-runs the rain rule against the last good
 // fetch — no new network round-trip. The first fetch after (re)start is
-// delayed 60 s (boot network race, diagnosed in weatheride).
+// delayed 30 s (boot network race, diagnosed in weatheride).
 // No cached data on first load (user decision 2026-09-06): a STALE bridge
 // response (outage cache) on the very first load does NOT clear the no-data
 // dots — they stay until a live (non-stale) fetch succeeds. A fresh
@@ -90,7 +90,7 @@ BarWidget {
   property bool hasFetched: false
   property bool firstFetchScheduled: false
   property bool locationWarned: false
-  readonly property int initialFetchDelayMs: 60 * 1000
+  readonly property int initialFetchDelayMs: 30 * 1000
   Timer { id: refreshTimer; interval: 2 * 60 * 60 * 1000; repeat: true; onTriggered: root.refresh() }
   Timer { id: retryTimer; interval: 10 * 60 * 1000; repeat: true; onTriggered: root.refresh() }
   Timer { id: initialDelayTimer; interval: root.initialFetchDelayMs; repeat: false; onTriggered: root.refresh() }
