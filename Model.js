@@ -1,7 +1,6 @@
 // weatheride-au — pure logic. Imported via `import "Model.js" as Model`
 // (BarWidget.qml + Panel.qml). No QML state, no root.*, no side effects —
-// every function is a pure function of its arguments so the whole module
-// can be unit-tested in plain node (tests: /home/user/Projects/weatheride-au/test/).
+// every function is a pure function of its arguments.
 //
 // FORK of weatheride's Model.js, converted 2026-09-06 to consume the BOM
 // bridge output (bin/bom-api) instead of Open-Meteo. Two-tier rain rule

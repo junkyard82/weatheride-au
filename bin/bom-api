@@ -40,7 +40,7 @@
 set -euo pipefail
 
 readonly API="https://api.weather.bom.gov.au/v1"
-readonly USER_AGENT="weatheride-au/0.1 (io.github.junkyard82.weatheride-au bar widget)"
+readonly USER_AGENT="weatheride-au/0.2 (io.github.junkyard82.weatheride-au bar widget)"
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/weatheride-au"
 
 # Nothing legitimate here is close to this big: the largest response is the
