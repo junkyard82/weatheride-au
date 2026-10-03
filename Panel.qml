@@ -52,6 +52,8 @@ Panel {
     root.controller.show()
     root.fetchAttempts = 0
     root.dirty = false   // sliders are re-seeded from the file below
+    root.cursorActive = false   // fresh keyboard cursor per open
+    root.focusIndex = 0
     configFile.reload()   // sliders reflect the file's current content
     root.refresh()
   }
@@ -89,6 +91,52 @@ Panel {
   // dirty, so an unedited open→close writes nothing (no file churn, no
   // spurious bar "config applied" lines).
   property bool dirty: false
+
+  // ---- keyboard navigation (arrow keys via PanelKeyCatcher) ----
+  // Same cursor model as the first-party audio/network panels: one cursor,
+  // keyboard and mouse drive it interchangeably, visuals derive from
+  // hasCursor via CursorSurface (never containsMouse). Up/Down walk the
+  // four sliders in visual top-to-bottom order —
+  //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = commute window
+  // Left/Right nudges the focused slider by its step. The cursor lights up
+  // on the first arrow key, on hovering a slider row, or on dragging it.
+  property int focusIndex: 0
+  property bool cursorActive: false
+
+  function focusSlider(n) {
+    root.focusIndex = n
+    root.cursorActive = true
+  }
+
+  function moveCursor(dx, dy) {
+    if (!root.cursorActive) {
+      root.cursorActive = true
+      return   // the first arrow key just lights the cursor on its row
+    }
+    if (dy !== 0) {
+      root.focusIndex = Math.max(0, Math.min(3, root.focusIndex + dy))
+    } else if (dx !== 0) {
+      root.nudgeFocused(dx)
+    }
+  }
+
+  function nudgeFocused(dir) {
+    if (root.focusIndex === 0) {
+      root.dayCount = Math.max(1, Math.min(7, root.dayCount + dir))
+    } else if (root.focusIndex === 1) {
+      root.threshold = Math.max(0, Math.min(100, root.threshold + dir))
+    } else if (root.focusIndex === 2) {
+      root.rainAmount = Math.max(0, Math.min(50,
+        Math.round((root.rainAmount + dir * 0.1) * 10) / 10))
+    } else if (windowSlider.activeKnob === -1) {
+      root.windowStart = Math.max(0, Math.min(root.windowEnd - 1,
+        root.windowStart + dir))
+    } else {
+      root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
+        root.windowEnd + dir))
+    }
+    root.dirty = true
+  }
 
   // The validated config object the preview runs on: parseConfig of the
   // slider values, so the preview can never diverge from the close-time
@@ -222,6 +270,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -398,16 +447,33 @@ Panel {
               font.bold: true
             }
           }
-          PanelSlider {
-            id: dayCountSlider
-            bar: root.bar
+          CursorSurface {
+            id: dayCountRow
             width: parent.width
-            minimum: 1
-            maximum: 7
-            step: 1
-            integer: true
-            value: root.dayCount
-            onMoved: function(v) { root.dayCount = v; root.dirty = true }
+            height: dayCountSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 0
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: dayCountSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 1
+              maximum: 7
+              step: 1
+              integer: true
+              value: root.dayCount
+              onMoved: function(v) {
+                root.dayCount = v; root.dirty = true; root.focusSlider(0)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(0)
+            }
           }
         }
 
@@ -441,16 +507,33 @@ Panel {
               font.bold: true
             }
           }
-          PanelSlider {
-            id: thresholdSlider
-            bar: root.bar
+          CursorSurface {
+            id: thresholdRow
             width: parent.width
-            minimum: 0
-            maximum: 100
-            step: 1
-            integer: true
-            value: root.threshold
-            onMoved: function(v) { root.threshold = v; root.dirty = true }
+            height: thresholdSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 1
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: thresholdSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 0
+              maximum: 100
+              step: 1
+              integer: true
+              value: root.threshold
+              onMoved: function(v) {
+                root.threshold = v; root.dirty = true; root.focusSlider(1)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(1)
+            }
           }
 
           // Rain amount (AND rule): a day is rain only if the chance rule
@@ -480,17 +563,33 @@ Panel {
           // 0.1 mm snapping: PanelSlider's `integer` flag only rounds to
           // whole numbers, so the caller rounds (PanelSlider.qml: "snapping
           // is the caller's job"); step: 0.1 drives the wheel notches.
-          PanelSlider {
-            id: rainAmountSlider
-            bar: root.bar
+          CursorSurface {
+            id: rainAmountRow
             width: parent.width
-            minimum: 0
-            maximum: 50
-            step: 0.1
-            value: root.rainAmount
-            onMoved: function(v) {
-              root.rainAmount = Math.round(v * 10) / 10
-              root.dirty = true
+            height: rainAmountSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 2
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: rainAmountSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 0
+              maximum: 50
+              step: 0.1
+              value: root.rainAmount
+              onMoved: function(v) {
+                root.rainAmount = Math.round(v * 10) / 10
+                root.dirty = true
+                root.focusSlider(2)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(2)
             }
           }
 
@@ -520,18 +619,37 @@ Panel {
               font.bold: true
             }
           }
-          RangeSlider {
-            id: windowSlider
-            bar: root.bar
+          CursorSurface {
+            id: windowRow
             width: parent.width
-            minimum: 0
-            maximum: 23
-            step: 1
-            integer: true
-            startValue: root.windowStart
-            endValue: root.windowEnd
-            onStartMoved: function(v) { root.windowStart = v; root.dirty = true }
-            onEndMoved: function(v) { root.windowEnd = v; root.dirty = true }
+            height: windowSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 3
+            outline: true
+            foreground: root.bar.foreground
+
+            RangeSlider {
+              id: windowSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 0
+              maximum: 23
+              step: 1
+              integer: true
+              startValue: root.windowStart
+              endValue: root.windowEnd
+              onStartMoved: function(v) {
+                root.windowStart = v; root.dirty = true; root.focusSlider(3)
+              }
+              onEndMoved: function(v) {
+                root.windowEnd = v; root.dirty = true; root.focusSlider(3)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(3)
+            }
           }
 
         }

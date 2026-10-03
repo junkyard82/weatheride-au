@@ -54,6 +54,11 @@ Item {
   readonly property real range: Math.max(0.0001, maximum - minimum)
   // Which knob is being dragged: -1 = start, 1 = end, 0 = none.
   property int dragWhich: 0
+  // Which knob is "active" for external (keyboard) nudges: the last knob
+  // touched by a mouse press/drag or the wheel. -1 = start, 1 = end. The
+  // panel's Left/Right handling adjusts this knob (see Panel.qml
+  // nudgeFocused), so arrows keep working on whichever end was just moved.
+  property int activeKnob: -1
   // Live knob positions while dragging (avoid the jump back to value).
   property real startLive: startValue
   property real endLive: endValue
@@ -181,6 +186,7 @@ Item {
     onPressed: function(mouse) {
       if (mouse.button !== Qt.LeftButton) return
       root.dragWhich = root.nearestKnob(mouse.x)
+      root.activeKnob = root.dragWhich
       root.setFromDrag(root.dragWhich, mouse.x)
     }
     onPositionChanged: function(mouse) {
@@ -200,6 +206,7 @@ Item {
     onWheel: function(wheel) {
       // Nudge the knob nearest the cursor (fallback: end knob).
       var which = root.nearestKnob(mouseArea.mouseX)
+      root.activeKnob = which
       var delta = wheel.angleDelta.y > 0 ? root.step : -root.step
       if (which === -1) {
         var ns = Math.max(root.minimum, Math.min(root.endValue - root.step, root.startValue + delta))
