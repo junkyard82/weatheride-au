@@ -203,13 +203,18 @@ Panel {
   }
 
   // ---- window ----
+  // No centerOnBar (deliberately, unlike the omarchy.weather panel this was
+  // copied from): the default KeyboardPanel placement centres the card under
+  // the anchorItem (the bar widget) with a screen-edge clamp — the same
+  // popout-under-the-widget behaviour as home-lab-mon's PopupCard. The
+  // omarchy.weather-style centre-of-bar placement looked wrong when the
+  // widget sits at a bar edge.
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
