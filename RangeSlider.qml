@@ -25,6 +25,16 @@ import qs.Ui
 // Clicking the track snaps the nearest knob to the click point. Dragging a
 // knob clamps it against the other (start <= end-step, end >= start+step).
 // The wheel nudges the knob nearest the cursor.
+//
+// Input contract (2026-10-04): startValue/endValue must be bound by the
+// caller (e.g. `startValue: root.windowStart`) and the caller must round-
+// trip the startMoved/endMoved signals into its own state. This component
+// NEVER assigns startValue/endValue itself: an imperative assignment would
+// destroy the caller's binding (was the 2026-10-04 "time label changes but
+// the knob is frozen" bug — the first mouse drag / wheel nudge killed the
+// binding, after which keyboard nudges of the caller's property no longer
+// reached the knob). The caller's round-trip keeps the bound values and
+// the live drag positions in lockstep.
 Item {
   id: root
 
@@ -198,9 +208,11 @@ Item {
       var which = root.dragWhich
       if (which === -1) root.startReleased(root.startLive)
       else if (which === 1) root.endReleased(root.endLive)
-      // Commit the live values back to the bound properties.
-      if (which === -1) root.startValue = root.startLive
-      else if (which === 1) root.endValue = root.endLive
+      // No commit assignment here on purpose: assigning startValue/endValue
+      // would destroy the caller's binding (2026-10-04 freeze bug). The
+      // caller already round-tripped every startMoved/endMoved into its own
+      // state, and the binding flowed it back into startValue/endValue, so
+      // the live positions and the bound values are equal at release.
       root.dragWhich = 0
     }
     onWheel: function(wheel) {
@@ -208,14 +220,13 @@ Item {
       var which = root.nearestKnob(mouseArea.mouseX)
       root.activeKnob = which
       var delta = wheel.angleDelta.y > 0 ? root.step : -root.step
+      // Emit only — never assign startValue/endValue (that would destroy
+      // the caller's binding, 2026-10-04 freeze bug); the caller's
+      // onStartMoved/onEndMoved round-trip the value back in.
       if (which === -1) {
-        var ns = Math.max(root.minimum, Math.min(root.endValue - root.step, root.startValue + delta))
-        root.startValue = ns
-        root.startMoved(ns)
+        root.startMoved(Math.max(root.minimum, Math.min(root.endValue - root.step, root.startValue + delta)))
       } else {
-        var ne = Math.max(root.startValue + root.step, Math.min(root.maximum, root.endValue + delta))
-        root.endValue = ne
-        root.endMoved(ne)
+        root.endMoved(Math.max(root.startValue + root.step, Math.min(root.maximum, root.endValue + delta)))
       }
     }
   }

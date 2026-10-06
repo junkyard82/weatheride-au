@@ -100,6 +100,14 @@ Panel {
   //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = commute window
   // Left/Right nudges the focused slider by its step. The cursor lights up
   // on the first arrow key, on hovering a slider row, or on dragging it.
+  //
+  // End-handle keys (2026-10-04): PanelKeyCatcher matches arrows on
+  // event.key, so Shift+arrows are indistinguishable from plain arrows, and
+  // Tab is taken (panel switching) — no modifier combo can reach the panel.
+  // The catcher DOES pass every other single character through as textKey,
+  // so the commute window's end handle gets the bracket keys: `[` pulls the
+  // end earlier (toward the start), `]` pushes it later. They do not move
+  // the active knob, so Left/Right keep their usual meaning afterwards.
   property int focusIndex: 0
   property bool cursorActive: false
 
@@ -135,6 +143,24 @@ Panel {
       root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
         root.windowEnd + dir))
     }
+    root.dirty = true
+  }
+
+  // The bracket keys (`[`/`]`) target the commute-window row directly and
+  // nudge only its END handle — the one arrow keys can't reach until the
+  // knob has been touched by mouse/wheel (activeKnob defaults to start).
+  // They deliberately do NOT touch activeKnob: arrows keep their established
+  // meaning (start, or whichever knob the mouse/wheel last touched), so a
+  // keyboard-only user is never trapped on the end handle — arrows always
+  // still reach the start.
+  function onPanelTextKey(t) {
+    if (t === "[") { root.focusSlider(3); root.nudgeEnd(-1) }
+    else if (t === "]") { root.focusSlider(3); root.nudgeEnd(1) }
+  }
+
+  function nudgeEnd(dir) {
+    root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
+      root.windowEnd + dir))
     root.dirty = true
   }
 
@@ -273,6 +299,7 @@ Panel {
       onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTextKey: function(t) { root.onPanelTextKey(t) }
 
       Column {
         id: column
