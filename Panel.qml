@@ -679,6 +679,21 @@ Panel {
             }
           }
 
+          // Keyboard shortcut hint (2026-10-06): the RangeSlider has two
+          // handles. Arrow keys nudge the start time (or whichever knob the
+          // mouse/wheel last touched); [ and ] nudge the end time. textKey
+          // channel keys work even while the keyboard cursor sits on
+          // another row.
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignLeft
+            text: "← → keys move start time  ·  [ ] keys move end time"
+            color: root.bar.foreground
+            opacity: 0.5
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
         }
 
       }
