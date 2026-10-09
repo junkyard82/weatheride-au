@@ -14,7 +14,9 @@
 //     "rainAmountThreshold": <number 0–50, mm>,
 //     "windowStartHour": <number 0–23, inclusive>,
 //     "windowEndHour": <number 0–23, exclusive>,
-//     "dayCount": <number 1–7, days shown after today> }
+//     "dayCount": <number 1–7, days shown after today>,
+//     "maxTempThreshold": <int 20–50, °C — "hot" if day max temp >= it>,
+//     "minTempThreshold": <int -10–10, °C — "cold" if day min temp <= it> }
 
 // Rain-day rules (two-tier, see AGENTS.md "Active plan"). A day is a RAIN
 // day iff BOTH hold (AND):
@@ -31,9 +33,22 @@
 //  - index 1..dayCount of daily[] = tomorrow .. today+dayCount; today
 //    (daily[0]) is ignored, exactly as in weatheride.
 //  - no "always at least one ride" rule (removed in weatheride step E).
+//
+// Temperature warnings (added 2026-10-09, FEATURES.md): each day also
+// carries `hot` / `cold` booleans — never ride-blocking (rain wins display
+// priority: rain > hot > cold > normal, resolved in the QML).
+//  - TWO-TIER, same window-coverage test as the rain window: when every hour
+//    in [windowStartHour, windowEndHour) of the day is present in the hourly
+//    data, max/min temp = the hourly max/min over those window hours; else
+//    whole-day daily[].temp_max / temp_min.
+//  - hot  = maxTemp >= maxTempThreshold (default 35°C).
+//  - cold = minTemp <= minTempThreshold (default 5°C).
+//  - missing/null temp is treated as not met (never fabricates a warning);
+//    a fully covered window whose hours all lack temp values falls back to
+//    the whole-day value.
 
 function defaultConfig() {
-  return { rainProbabilityThreshold: 5, rainAmountThreshold: 0, windowStartHour: 6, windowEndHour: 20, dayCount: 5 }
+  return { rainProbabilityThreshold: 5, rainAmountThreshold: 0, windowStartHour: 6, windowEndHour: 20, dayCount: 5, maxTempThreshold: 35, minTempThreshold: 5 }
 }
 
 // Merge a raw config (JSON string or object) over the defaults.
@@ -43,6 +58,8 @@ function defaultConfig() {
 //   - windowStartHour / windowEndHour: finite number, rounded, clamped 0–23
 //   - windowEndHour <= windowStartHour → both reset to 6/20
 //   - dayCount: finite number, rounded, clamped 1–7
+//   - maxTempThreshold: finite number, rounded, clamped 20–50 (else 35)
+//   - minTempThreshold: finite number, rounded, clamped -10–10 (else 5)
 // Unknown keys are ignored. Always returns a fresh object.
 function parseConfig(raw) {
   var cfg = defaultConfig()
@@ -73,6 +90,10 @@ function parseConfig(raw) {
   }
   if (typeof data.dayCount === "number" && isFinite(data.dayCount))
     cfg.dayCount = Math.min(7, Math.max(1, Math.round(data.dayCount)))
+  if (typeof data.maxTempThreshold === "number" && isFinite(data.maxTempThreshold))
+    cfg.maxTempThreshold = Math.min(50, Math.max(20, Math.round(data.maxTempThreshold)))
+  if (typeof data.minTempThreshold === "number" && isFinite(data.minTempThreshold))
+    cfg.minTempThreshold = Math.min(10, Math.max(-10, Math.round(data.minTempThreshold)))
   return cfg
 }
 
@@ -85,7 +106,7 @@ function emptyDayStates(dayCount) {
       : 5
   var out = []
   for (var i = 0; i < n; i++)
-    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false })
+    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false, hot: false, cold: false })
   return out
 }
 
@@ -138,11 +159,17 @@ function computeDayStates(raw, config) {
       d.windowEndHour = config.windowEndHour
     if (typeof config.dayCount === "number" && isFinite(config.dayCount))
       d.dayCount = Math.min(7, Math.max(1, Math.round(config.dayCount)))
+    if (typeof config.maxTempThreshold === "number" && isFinite(config.maxTempThreshold))
+      d.maxTempThreshold = Math.min(50, Math.max(20, Math.round(config.maxTempThreshold)))
+    if (typeof config.minTempThreshold === "number" && isFinite(config.minTempThreshold))
+      d.minTempThreshold = Math.min(10, Math.max(-10, Math.round(config.minTempThreshold)))
   }
   var threshold = d.rainProbabilityThreshold
   var amountThreshold = d.rainAmountThreshold
   var startHour = d.windowStartHour
   var endHour = d.windowEndHour
+  var hotThreshold = d.maxTempThreshold
+  var coldThreshold = d.minTempThreshold
 
   var parsed
   try {
@@ -170,10 +197,12 @@ function computeDayStates(raw, config) {
       if (!t) continue
       var ld = t.getFullYear() + "-" + pad2(t.getMonth() + 1) + "-" + pad2(t.getDate())
       var lh = t.getHours()
-      if (!byDate[ld]) byDate[ld] = { hours: {}, chances: {} }
+      if (!byDate[ld]) byDate[ld] = { hours: {}, chances: {}, temps: {} }
       byDate[ld].hours[lh] = true
       var hr = he.rain && typeof he.rain === "object" ? parseFloat(he.rain.chance) : NaN
       if (!isNaN(hr)) byDate[ld].chances[lh] = hr
+      var tp = parseFloat(he.temp)
+      if (!isNaN(tp)) byDate[ld].temps[lh] = tp
       haveHourly = true
     }
   }
@@ -192,6 +221,25 @@ function computeDayStates(raw, config) {
       if (bucket.chances[h] !== undefined && bucket.chances[h] > max) max = bucket.chances[h]
     }
     return max >= 0 ? max : null
+  }
+
+  // Window temps for a day (two-tier temperature, 2026-10-09): the hourly
+  // max/min over [startHour, endHour) of that day, but ONLY if every window
+  // hour is present — otherwise {max: NaN, min: NaN} (the caller falls back
+  // to whole-day temp_max/temp_min). Hours present without a temp value are
+  // ignored in the aggregate; a covered window with no temp values at all is
+  // NaN (falls back to whole-day, never a fabricated warning).
+  function windowTempsFor(localDate) {
+    var bucket = byDate[localDate]
+    if (!bucket) return { max: NaN, min: NaN }
+    var max = -Infinity, min = Infinity
+    for (var h = startHour; h < endHour; h++) {
+      if (bucket.hours[h] !== true) return { max: NaN, min: NaN }   // an in-window hour is missing
+      var t = bucket.temps[h]
+      if (t !== undefined && t > max) max = t
+      if (t !== undefined && t < min) min = t
+    }
+    return { max: max === -Infinity ? NaN : max, min: min === Infinity ? NaN : min }
   }
 
   var states = []
@@ -218,12 +266,26 @@ function computeDayStates(raw, config) {
     if (amountThreshold > 0) amountOk = !isNaN(amount) && amount >= amountThreshold
 
     var rainy = chanceOk && amountOk
+
+    // Temperature (two-tier, same window-coverage test as the rain window):
+    // window hourly max/min when fully covered, else whole-day temp_max/
+    // temp_min. Missing/null temp → NaN → no warning (never fabricated).
+    var dailyMaxT = parseFloat(entry.temp_max)
+    var dailyMinT = parseFloat(entry.temp_min)
+    var windowTemps = haveHourly ? windowTempsFor(localDate) : { max: NaN, min: NaN }
+    var maxT = !isNaN(windowTemps.max) ? windowTemps.max : dailyMaxT
+    var minT = !isNaN(windowTemps.min) ? windowTemps.min : dailyMinT
+    var hot = !isNaN(maxT) && maxT >= hotThreshold
+    var cold = !isNaN(minT) && minT <= coldThreshold
+
     states.push({
       date: localDate,
       rideable: !rainy,
       mm: isNaN(amount) ? 0 : amount,          // whole-day total (amount.max)
       maxProb: isNaN(chanceUsed) ? -1 : chanceUsed,   // chance actually used
-      hasData: true
+      hasData: true,
+      hot: hot,
+      cold: cold
     })
   }
   return states

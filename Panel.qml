@@ -22,7 +22,8 @@ import "Model.js" as Model
 //     shell.json setting (no omarchy.weather file, no wttr auto-detect)
 //   - the 06:00–20:00 window sliders are REMOVED (whole-day BOM rain data)
 //   - config schema is now { rainProbabilityThreshold, rainAmountThreshold,
-//     dayCount }.
+//     windowStartHour, windowEndHour, dayCount, maxTempThreshold,
+//     minTempThreshold }.
 //
 // Window: the omarchy.weather variant — Panel {} base (qs.Ui) +
 // KeyboardPanel + PanelKeyCatcher, opened via the controller the base owns.
@@ -87,6 +88,15 @@ Panel {
   property var windowStart: 6   // commute window start hour (two-tier; 0–23)
   property var windowEnd: 20    // commute window end hour (two-tier; 0–23)
   property var dayCount: 5     // days shown, tomorrow…day+N; 1–7
+  // Temperature warnings (display only — never ride-blocking): hot if the
+  // day's max temp >= maxTemp, cold if the day's min temp <= minTemp.
+  property var maxTemp: 35     // °C, 20–50
+  property var minTemp: 5      // °C, -10..10
+  // Injected by BarWidget's injectPanel(): the theme colors.toml `blue`
+  // slot the bar resolved (the bar keeps it fresh; this is the panel's copy
+  // for the preview — panels are short-lived, staleness on a mid-session
+  // theme swap is acceptable).
+  property color coldColor: Color.accent
   // True once a slider has moved since open(); close() commits only when
   // dirty, so an unedited open→close writes nothing (no file churn, no
   // spurious bar "config applied" lines).
@@ -96,8 +106,9 @@ Panel {
   // Same cursor model as the first-party audio/network panels: one cursor,
   // keyboard and mouse drive it interchangeably, visuals derive from
   // hasCursor via CursorSurface (never containsMouse). Up/Down walk the
-  // four sliders in visual top-to-bottom order —
-  //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = commute window
+  // six slider rows in visual top-to-bottom order —
+  //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = commute window,
+  //   4 = hot temp, 5 = cold temp
   // Left/Right nudges the focused slider by its step. The cursor lights up
   // on the first arrow key, on hovering a slider row, or on dragging it.
   //
@@ -122,7 +133,7 @@ Panel {
       return   // the first arrow key just lights the cursor on its row
     }
     if (dy !== 0) {
-      root.focusIndex = Math.max(0, Math.min(3, root.focusIndex + dy))
+      root.focusIndex = Math.max(0, Math.min(5, root.focusIndex + dy))
     } else if (dx !== 0) {
       root.nudgeFocused(dx)
     }
@@ -136,12 +147,16 @@ Panel {
     } else if (root.focusIndex === 2) {
       root.rainAmount = Math.max(0, Math.min(50,
         Math.round((root.rainAmount + dir * 0.1) * 10) / 10))
-    } else if (windowSlider.activeKnob === -1) {
+    } else if (root.focusIndex === 3 && windowSlider.activeKnob === -1) {
       root.windowStart = Math.max(0, Math.min(root.windowEnd - 1,
         root.windowStart + dir))
-    } else {
+    } else if (root.focusIndex === 3) {
       root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
         root.windowEnd + dir))
+    } else if (root.focusIndex === 4) {
+      root.maxTemp = Math.max(20, Math.min(50, root.maxTemp + dir))
+    } else if (root.focusIndex === 5) {
+      root.minTemp = Math.max(-10, Math.min(10, root.minTemp + dir))
     }
     root.dirty = true
   }
@@ -172,7 +187,9 @@ Panel {
     rainAmountThreshold: root.rainAmount,
     windowStartHour: root.windowStart,
     windowEndHour: root.windowEnd,
-    dayCount: root.dayCount
+    dayCount: root.dayCount,
+    maxTempThreshold: root.maxTemp,
+    minTempThreshold: root.minTemp
   })
   readonly property var previewStates: {
     var states = Model.computeDayStates(root.lastRaw, root.previewConfig)
@@ -187,6 +204,18 @@ Panel {
   function previewDim(index) {
     var s = root.previewStates[index]
     return !s || !s.hasData || !s.rideable
+  }
+  // Mirrors the bar dots' color priority (rain > hot > cold > normal): hot
+  // = bar alert color, cold = theme blue (root.coldColor), else bar
+  // foreground — applied regardless of rideable so rain+hot / rain+cold
+  // show the dimmed COLORED glyph exactly as the bar renders them (the
+  // dimming is the preview Text's opacity above).
+  function previewColor(index) {
+    var s = root.previewStates[index]
+    if (!s || !s.hasData) return root.bar.foreground
+    if (s.hot) return root.bar.urgent
+    if (s.cold) return root.coldColor
+    return root.bar.foreground
   }
 
   FileView {
@@ -208,6 +237,8 @@ Panel {
     root.windowStart = cfg.windowStartHour
     root.windowEnd = cfg.windowEndHour
     root.dayCount = cfg.dayCount
+    root.maxTemp = cfg.maxTempThreshold
+    root.minTemp = cfg.minTempThreshold
   }
 
   // ---- forecast (own fetch on open; via the forked bridge, whole-day) ----
@@ -263,12 +294,15 @@ Panel {
     var ws = Math.round(Number(cfg.windowStartHour))
     var we = Math.round(Number(cfg.windowEndHour))
     var dc = Math.round(Number(cfg.dayCount))
+    var mt = Math.round(Number(cfg.maxTempThreshold))
+    var ct = Math.round(Number(cfg.minTempThreshold))
     Quickshell.execDetached(["sh", "-c",
       "mkdir -p '" + root.configDir + "' && " +
       "tmp=$(mktemp '" + root.configDir + "/.weatheride-au.json.XXXXXX') && " +
       "jq -n --argjson t " + t + " --argjson ra " + ra + " --argjson ws " + ws + " --argjson we " + we + " --argjson dc " + dc +
-      " '{rainProbabilityThreshold:$t, rainAmountThreshold:$ra, windowStartHour:$ws, windowEndHour:$we, dayCount:$dc}' " +
-      "| tee \"$tmp\" >/dev/null && mv -f \"$tmp\" '" + root.configPath + "'"])
+      " --argjson mt " + mt + " --argjson ct " + ct +
+      " '{rainProbabilityThreshold:$t, rainAmountThreshold:$ra, windowStartHour:$ws, windowEndHour:$we, dayCount:$dc, maxTempThreshold:$mt, minTempThreshold:$ct}' " +
+      "| tee \"$tmp\" >/dev/null && mv -f \"$tmp\" '" + root.configPath + "'"]) 
   }
 
   function fmtHour(h) {
@@ -411,7 +445,7 @@ Panel {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.previewGlyph(index)
-                color: root.bar.foreground
+                color: root.previewColor(index)
                 opacity: root.previewDim(index) ? 0.35 : 1.0
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.heading
@@ -694,6 +728,120 @@ Panel {
             font.pixelSize: Style.font.caption
           }
 
+        }
+
+        PanelSeparator {}
+
+        // ---------- Temperature warnings (display only) ----------
+        // Color the day's glyph — hot = bar alert color, cold = theme blue
+        // (root.coldColor, resolved by the bar from the theme's
+        // colors.toml). Never ride-blocking: the glyphs themselves are the
+        // same ride/rain/no-data ones, only the color changes.
+        PanelSectionHeader { text: "TEMP WARNINGS" }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Row {
+            width: parent.width
+            Text {
+              id: maxTempLabel
+              width: parent.width - maxTempValue.implicitWidth
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Hot day if max temp ≥"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Text {
+              id: maxTempValue
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.maxTemp + " °C"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+          }
+          CursorSurface {
+            id: maxTempRow
+            width: parent.width
+            height: maxTempSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 4
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: maxTempSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 20
+              maximum: 50
+              step: 1
+              integer: true
+              value: root.maxTemp
+              onMoved: function(v) {
+                root.maxTemp = v; root.dirty = true; root.focusSlider(4)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(4)
+            }
+          }
+
+          Row {
+            width: parent.width
+            Text {
+              id: minTempLabel
+              width: parent.width - minTempValue.implicitWidth
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Cold day if min temp ≤"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Text {
+              id: minTempValue
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.minTemp + " °C"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+          }
+          CursorSurface {
+            id: minTempRow
+            width: parent.width
+            height: minTempSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 5
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: minTempSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: -10
+              maximum: 10
+              step: 1
+              integer: true
+              value: root.minTemp
+              onMoved: function(v) {
+                root.minTemp = v; root.dirty = true; root.focusSlider(5)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(5)
+            }
+          }
         }
 
       }
