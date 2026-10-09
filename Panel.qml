@@ -108,8 +108,8 @@ Panel {
   // keyboard and mouse drive it interchangeably, visuals derive from
   // hasCursor via CursorSurface (never containsMouse). Up/Down walk the
   // six slider rows in visual top-to-bottom order —
-  //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = commute window,
-  //   4 = hot temp, 5 = cold temp
+  //   0 = days shown, 1 = rain chance, 2 = rain amount, 3 = hot temp,
+  //   4 = cold temp, 5 = commute window
   // Left/Right nudges the focused slider by its step. The cursor lights up
   // on the first arrow key, on hovering a slider row, or on dragging it.
   //
@@ -148,16 +148,16 @@ Panel {
     } else if (root.focusIndex === 2) {
       root.rainAmount = Math.max(0, Math.min(50,
         Math.round((root.rainAmount + dir * 0.1) * 10) / 10))
-    } else if (root.focusIndex === 3 && windowSlider.activeKnob === -1) {
+    } else if (root.focusIndex === 3) {
+      root.maxTemp = Math.max(20, Math.min(50, root.maxTemp + dir))
+    } else if (root.focusIndex === 4) {
+      root.minTemp = Math.max(-10, Math.min(10, root.minTemp + dir))
+    } else if (root.focusIndex === 5 && windowSlider.activeKnob === -1) {
       root.windowStart = Math.max(0, Math.min(root.windowEnd - 1,
         root.windowStart + dir))
-    } else if (root.focusIndex === 3) {
+    } else if (root.focusIndex === 5) {
       root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
         root.windowEnd + dir))
-    } else if (root.focusIndex === 4) {
-      root.maxTemp = Math.max(20, Math.min(50, root.maxTemp + dir))
-    } else if (root.focusIndex === 5) {
-      root.minTemp = Math.max(-10, Math.min(10, root.minTemp + dir))
     }
     root.dirty = true
   }
@@ -170,8 +170,8 @@ Panel {
   // keyboard-only user is never trapped on the end handle — arrows always
   // still reach the start.
   function onPanelTextKey(t) {
-    if (t === "[") { root.focusSlider(3); root.nudgeEnd(-1) }
-    else if (t === "]") { root.focusSlider(3); root.nudgeEnd(1) }
+    if (t === "[") { root.focusSlider(5); root.nudgeEnd(-1) }
+    else if (t === "]") { root.focusSlider(5); root.nudgeEnd(1) }
   }
 
   function nudgeEnd(dir) {
@@ -655,80 +655,6 @@ Panel {
             }
           }
 
-          // Commute window (two-tier, decided 2026-09-06): the window applies
-          // to a day only where BOM's hourly data fully covers it (max chance
-          // within the window); elsewhere the whole-day chance is used. Amount
-          // stays whole-day. The RangeSlider's two knobs can't cross, so
-          // start < end is guaranteed — no clamp logic needed.
-          Row {
-            width: parent.width
-            Text {
-              id: windowLabel
-              width: parent.width - windowValue.implicitWidth
-              anchors.verticalCenter: parent.verticalCenter
-              text: "Rain day if rain between"
-              color: root.bar.foreground
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.body
-            }
-            Text {
-              id: windowValue
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.fmtHour(root.windowStart) + ":00 – " + root.fmtHour(root.windowEnd) + ":00"
-              color: root.bar.foreground
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-            }
-          }
-          CursorSurface {
-            id: windowRow
-            width: parent.width
-            height: windowSlider.implicitHeight + Style.spacing.controlGap
-            hasCursor: root.cursorActive && root.focusIndex === 3
-            outline: true
-            foreground: root.bar.foreground
-
-            RangeSlider {
-              id: windowSlider
-              bar: root.bar
-              anchors.fill: parent
-              anchors.leftMargin: Style.space(6)
-              anchors.rightMargin: Style.space(6)
-              minimum: 0
-              maximum: 23
-              step: 1
-              integer: true
-              startValue: root.windowStart
-              endValue: root.windowEnd
-              onStartMoved: function(v) {
-                root.windowStart = v; root.dirty = true; root.focusSlider(3)
-              }
-              onEndMoved: function(v) {
-                root.windowEnd = v; root.dirty = true; root.focusSlider(3)
-              }
-            }
-
-            HoverHandler {
-              onHoveredChanged: if (hovered) root.focusSlider(3)
-            }
-          }
-
-          // Keyboard shortcut hint (2026-10-06): the RangeSlider has two
-          // handles. Arrow keys nudge the start time (or whichever knob the
-          // mouse/wheel last touched); [ and ] nudge the end time. textKey
-          // channel keys work even while the keyboard cursor sits on
-          // another row.
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignLeft
-            text: "← → keys move start time  ·  [ ] keys move end time"
-            color: root.bar.foreground
-            opacity: 0.5
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
         }
 
         PanelSeparator {}
@@ -769,7 +695,7 @@ Panel {
             id: maxTempRow
             width: parent.width
             height: maxTempSlider.implicitHeight + Style.spacing.controlGap
-            hasCursor: root.cursorActive && root.focusIndex === 4
+            hasCursor: root.cursorActive && root.focusIndex === 3
             outline: true
             foreground: root.bar.foreground
 
@@ -785,12 +711,12 @@ Panel {
               integer: true
               value: root.maxTemp
               onMoved: function(v) {
-                root.maxTemp = v; root.dirty = true; root.focusSlider(4)
+                root.maxTemp = v; root.dirty = true; root.focusSlider(3)
               }
             }
 
             HoverHandler {
-              onHoveredChanged: if (hovered) root.focusSlider(4)
+              onHoveredChanged: if (hovered) root.focusSlider(3)
             }
           }
 
@@ -819,7 +745,7 @@ Panel {
             id: minTempRow
             width: parent.width
             height: minTempSlider.implicitHeight + Style.spacing.controlGap
-            hasCursor: root.cursorActive && root.focusIndex === 5
+            hasCursor: root.cursorActive && root.focusIndex === 4
             outline: true
             foreground: root.bar.foreground
 
@@ -835,13 +761,98 @@ Panel {
               integer: true
               value: root.minTemp
               onMoved: function(v) {
-                root.minTemp = v; root.dirty = true; root.focusSlider(5)
+                root.minTemp = v; root.dirty = true; root.focusSlider(4)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(4)
+            }
+          }
+        }
+
+        PanelSeparator {}
+
+        // ---------- Ride window (own section at the bottom of the panel,
+        // moved out of RAIN RULES 2026-10-09 per user) ----------
+        // Two-tier (decided 2026-09-06): the window applies to a day only
+        // where BOM's hourly data fully covers it (max chance within the
+        // window); elsewhere the whole-day chance is used. Amount stays
+        // whole-day. The RangeSlider's two knobs can't cross, so start < end
+        // is guaranteed — no clamp logic needed.
+        PanelSectionHeader { text: "RIDE WINDOW" }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Row {
+            width: parent.width
+            Text {
+              id: windowLabel
+              width: parent.width - windowValue.implicitWidth
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Ride window"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Text {
+              id: windowValue
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.fmtHour(root.windowStart) + ":00 – " + root.fmtHour(root.windowEnd) + ":00"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+          }
+          CursorSurface {
+            id: windowRow
+            width: parent.width
+            height: windowSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 5
+            outline: true
+            foreground: root.bar.foreground
+
+            RangeSlider {
+              id: windowSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 0
+              maximum: 23
+              step: 1
+              integer: true
+              startValue: root.windowStart
+              endValue: root.windowEnd
+              onStartMoved: function(v) {
+                root.windowStart = v; root.dirty = true; root.focusSlider(5)
+              }
+              onEndMoved: function(v) {
+                root.windowEnd = v; root.dirty = true; root.focusSlider(5)
               }
             }
 
             HoverHandler {
               onHoveredChanged: if (hovered) root.focusSlider(5)
             }
+          }
+
+          // Keyboard shortcut hint (2026-10-06): the RangeSlider has two
+          // handles. Arrow keys nudge the start time (or whichever knob the
+          // mouse/wheel last touched); [ and ] nudge the end time. textKey
+          // channel keys work even while the keyboard cursor sits on
+          // another row.
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignLeft
+            text: "← → keys move start time  ·  [ ] keys move end time"
+            color: root.bar.foreground
+            opacity: 0.5
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
           }
         }
 
