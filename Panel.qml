@@ -92,11 +92,12 @@ Panel {
   // day's max temp >= maxTemp, cold if the day's min temp <= minTemp.
   property var maxTemp: 35     // °C, 20–50
   property var minTemp: 5      // °C, -10..10
-  // Injected by BarWidget's injectPanel(): the theme colors.toml `blue`
-  // slot the bar resolved (the bar keeps it fresh; this is the panel's copy
-  // for the preview — panels are short-lived, staleness on a mid-session
-  // theme swap is acceptable).
-  property color coldColor: Color.accent
+  // Live bound to the bar widget's coldColor (the theme colors.toml `blue`
+  // slot the bar resolves). A binding through the injected hostWidget, NOT
+  // a one-shot copy: the old injectPanel copy froze the preview at the
+  // pre-load Color.accent fallback (red-orange on this theme) while the bar
+  // dots had already resolved the theme blue — fixed 2026-10-09.
+  property color coldColor: root.hostWidget ? root.hostWidget.coldColor : Color.accent
   // True once a slider has moved since open(); close() commits only when
   // dirty, so an unedited open→close writes nothing (no file churn, no
   // spurious bar "config applied" lines).
