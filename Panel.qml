@@ -77,6 +77,7 @@ Panel {
   // code points are deliberately duplicated — no cross-file QML state).
   readonly property string rideGlyph: "\u{F00A3}"
   readonly property string snowGlyph: "\u{F0717}"  // nf-md-snowflake, cold day
+  readonly property string windGlyph: "\u{F111F}"  // nf-md-bike_fast, windy day
   readonly property string rainGlyph: "\u{E318}"
   readonly property string unknownGlyph: "\u{F4C3}"
 
@@ -93,6 +94,7 @@ Panel {
   // day's max temp >= maxTemp, cold if the day's min temp <= minTemp.
   property var maxTemp: 35     // °C, 20–50
   property var minTemp: 5      // °C, -10..10
+  property var windGust: 30    // km/h, 10–80 — windy if window max gust >= it
   // True once a slider has moved since open(); close() commits only when
   // dirty, so an unedited open→close writes nothing (no file churn, no
   // spurious bar "config applied" lines).
@@ -129,7 +131,7 @@ Panel {
       return   // the first arrow key just lights the cursor on its row
     }
     if (dy !== 0) {
-      root.focusIndex = Math.max(0, Math.min(5, root.focusIndex + dy))
+      root.focusIndex = Math.max(0, Math.min(6, root.focusIndex + dy))
     } else if (dx !== 0) {
       root.nudgeFocused(dx)
     }
@@ -147,10 +149,12 @@ Panel {
       root.maxTemp = Math.max(20, Math.min(50, root.maxTemp + dir))
     } else if (root.focusIndex === 4) {
       root.minTemp = Math.max(-10, Math.min(10, root.minTemp + dir))
-    } else if (root.focusIndex === 5 && windowSlider.activeKnob === -1) {
+    } else if (root.focusIndex === 5) {
+      root.windGust = Math.max(10, Math.min(80, root.windGust + dir))
+    } else if (root.focusIndex === 6 && windowSlider.activeKnob === -1) {
       root.windowStart = Math.max(0, Math.min(root.windowEnd - 1,
         root.windowStart + dir))
-    } else if (root.focusIndex === 5) {
+    } else if (root.focusIndex === 6) {
       root.windowEnd = Math.max(root.windowStart + 1, Math.min(23,
         root.windowEnd + dir))
     }
@@ -165,8 +169,8 @@ Panel {
   // keyboard-only user is never trapped on the end handle — arrows always
   // still reach the start.
   function onPanelTextKey(t) {
-    if (t === "[") { root.focusSlider(5); root.nudgeEnd(-1) }
-    else if (t === "]") { root.focusSlider(5); root.nudgeEnd(1) }
+    if (t === "[") { root.focusSlider(6); root.nudgeEnd(-1) }
+    else if (t === "]") { root.focusSlider(6); root.nudgeEnd(1) }
   }
 
   function nudgeEnd(dir) {
@@ -185,7 +189,8 @@ Panel {
     windowEndHour: root.windowEnd,
     dayCount: root.dayCount,
     maxTempThreshold: root.maxTemp,
-    minTempThreshold: root.minTemp
+    minTempThreshold: root.minTemp,
+    windGustThreshold: root.windGust
   })
   readonly property var previewStates: {
     var states = Model.computeDayStates(root.lastRaw, root.previewConfig)
@@ -195,7 +200,8 @@ Panel {
   function previewGlyph(index) {
     var s = root.previewStates[index]
     if (!s || !s.hasData) return root.unknownGlyph
-    return s.rideable ? (s.cold ? root.snowGlyph : root.rideGlyph) : root.rainGlyph
+    // Same hierarchy as the bar: rain > cold > wind > normal.
+    return s.rideable ? (s.cold ? root.snowGlyph : (s.windy ? root.windGlyph : root.rideGlyph)) : root.rainGlyph
   }
   function previewDim(index) {
     var s = root.previewStates[index]
@@ -205,7 +211,7 @@ Panel {
   // alert color, else bar foreground — applied regardless of rideable so
   // rain+hot shows the dimmed COLORED glyph exactly as the bar renders it
   // (the dimming is the preview Text's opacity above). Cold is a glyph swap
-  // (snowflake), not a color change.
+  // (snowflake), windy a glyph swap (bike_fast) — same glyphs as the bar.
   function previewColor(index) {
     var s = root.previewStates[index]
     if (!s || !s.hasData) return root.bar.foreground
@@ -234,6 +240,7 @@ Panel {
     root.dayCount = cfg.dayCount
     root.maxTemp = cfg.maxTempThreshold
     root.minTemp = cfg.minTempThreshold
+    root.windGust = cfg.windGustThreshold
   }
 
   // ---- forecast (own fetch on open; via the forked bridge, whole-day) ----
@@ -291,12 +298,13 @@ Panel {
     var dc = Math.round(Number(cfg.dayCount))
     var mt = Math.round(Number(cfg.maxTempThreshold))
     var ct = Math.round(Number(cfg.minTempThreshold))
+    var wg = Math.round(Number(cfg.windGustThreshold))
     Quickshell.execDetached(["sh", "-c",
       "mkdir -p '" + root.configDir + "' && " +
       "tmp=$(mktemp '" + root.configDir + "/.weatheride-au.json.XXXXXX') && " +
       "jq -n --argjson t " + t + " --argjson ra " + ra + " --argjson ws " + ws + " --argjson we " + we + " --argjson dc " + dc +
-      " --argjson mt " + mt + " --argjson ct " + ct +
-      " '{rainProbabilityThreshold:$t, rainAmountThreshold:$ra, windowStartHour:$ws, windowEndHour:$we, dayCount:$dc, maxTempThreshold:$mt, minTempThreshold:$ct}' " +
+      " --argjson mt " + mt + " --argjson ct " + ct + " --argjson wg " + wg +
+      " '{rainProbabilityThreshold:$t, rainAmountThreshold:$ra, windowStartHour:$ws, windowEndHour:$we, dayCount:$dc, maxTempThreshold:$mt, minTempThreshold:$ct, windGustThreshold:$wg}' " +
       "| tee \"$tmp\" >/dev/null && mv -f \"$tmp\" '" + root.configPath + "'"]) 
   }
 
@@ -767,6 +775,71 @@ Panel {
 
         PanelSeparator {}
 
+        // ---------- Wind (2026-10-11) ----------
+        // "Windy day if max gust": the max hourly gust within the ride
+        // window on a fully-covered near day (no daily wind fallback — far
+        // days are never windy). Display-only glyph swap bike -> bike_fast;
+        // never ride-blocking. Hierarchy rain > cold > wind > normal (cold
+        // beats wind); a hot day colors the windy glyph with bar.urgent.
+        PanelSectionHeader { text: "WIND" }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+
+          Row {
+            width: parent.width
+            Text {
+              id: windLabel
+              width: parent.width - windValue.implicitWidth
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Windy day if max gust ≥"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Text {
+              id: windValue
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.windGust + " km/h"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+          }
+          CursorSurface {
+            id: windRow
+            width: parent.width
+            height: windSlider.implicitHeight + Style.spacing.controlGap
+            hasCursor: root.cursorActive && root.focusIndex === 5
+            outline: true
+            foreground: root.bar.foreground
+
+            PanelSlider {
+              id: windSlider
+              bar: root.bar
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              minimum: 10
+              maximum: 80
+              step: 1
+              integer: true
+              value: root.windGust
+              onMoved: function(v) {
+                root.windGust = v; root.dirty = true; root.focusSlider(5)
+              }
+            }
+
+            HoverHandler {
+              onHoveredChanged: if (hovered) root.focusSlider(5)
+            }
+          }
+        }
+
+        PanelSeparator {}
+
         // ---------- Ride window (own section at the bottom of the panel,
         // moved out of RAIN RULES 2026-10-09 per user) ----------
         // Two-tier (decided 2026-09-06): the window applies to a day only
@@ -805,7 +878,7 @@ Panel {
             id: windowRow
             width: parent.width
             height: windowSlider.implicitHeight + Style.spacing.controlGap
-            hasCursor: root.cursorActive && root.focusIndex === 5
+            hasCursor: root.cursorActive && root.focusIndex === 6
             outline: true
             foreground: root.bar.foreground
 
@@ -822,15 +895,15 @@ Panel {
               startValue: root.windowStart
               endValue: root.windowEnd
               onStartMoved: function(v) {
-                root.windowStart = v; root.dirty = true; root.focusSlider(5)
+                root.windowStart = v; root.dirty = true; root.focusSlider(6)
               }
               onEndMoved: function(v) {
-                root.windowEnd = v; root.dirty = true; root.focusSlider(5)
+                root.windowEnd = v; root.dirty = true; root.focusSlider(6)
               }
             }
 
             HoverHandler {
-              onHoveredChanged: if (hovered) root.focusSlider(5)
+              onHoveredChanged: if (hovered) root.focusSlider(6)
             }
           }
 

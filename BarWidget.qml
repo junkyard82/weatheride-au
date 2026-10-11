@@ -30,14 +30,16 @@ import "Model.js" as Model
 // io.github.junkyard82.weatheride-au location "Brighton VIC"` — read via the base
 // setting() helper (no omarchy.weather file dependency).
 // Glyphs: rideable = "\u{F00A3}" (md-bike)
+//         wind     = "\u{F111F}" (nf-md-bike_fast) — windy day
 //         cold     = "\u{F0717}" (nf-md-snowflake) — cold day, no color change
 //         rain     = "\u{E318}"  (nf-weather-rain), dimmed
 //         no data  = "\u{F4C3}"  (nf-oct-dot), dimmed — pre-fetch default
 // Glyph colors: normal = bar foreground; hot day = bar alert color
-// (bar.urgent). Temperature warnings are display-only and never
-// ride-blocking; a cold day swaps the bike for a snowflake glyph (glyph
-// change, not a color change); rain+hot keeps the dimmed colored
-// treatment, rain+cold a dimmed plain rain glyph.
+// (bar.urgent). Weather warnings are display-only and never ride-blocking.
+// Rideable-day hierarchy (rain > cold > wind > normal): a cold day swaps
+// the bike for a dimmed snowflake (cold beats wind); a windy day swaps the
+// bike for bike_fast; a hot day colors whichever glyph is shown (bike,
+// bike_fast, snowflake or the rain glyph) with the alert color.
 // Pure logic (rain rule, config, weekday, tooltip, BOM date parsing) lives
 // in Model.js; this file keeps only the stateful QML.
 
@@ -47,6 +49,7 @@ BarWidget {
 
   readonly property string rideGlyph: "\u{F00A3}"
   readonly property string snowGlyph: "\u{F0717}"  // nf-md-snowflake, cold day
+  readonly property string windGlyph: "\u{F111F}"  // nf-md-bike_fast, windy day
   readonly property string rainGlyph: "\u{E318}"
   readonly property string unknownGlyph: "\u{F4C3}"   // nf-oct-dot, no data loaded yet
 
@@ -278,13 +281,15 @@ BarWidget {
         bar: root.bar
         text: root.dayStates[index].hasData
              ? (root.dayStates[index].rideable
-                  ? (root.dayStates[index].cold ? root.snowGlyph : root.rideGlyph)
+                  ? (root.dayStates[index].cold ? root.snowGlyph
+                      : (root.dayStates[index].windy ? root.windGlyph : root.rideGlyph))
                   : root.rainGlyph)
              : root.unknownGlyph
         dimmed: !root.dayStates[index].hasData || !root.dayStates[index].rideable || root.dayStates[index].cold
-        // Temperature warning (display only): hot = bar alert color; cold =
-        // swaps the bike for a dimmed snowflake glyph (dimmed like rain, no
-        // color change); rain+hot keeps the dimmed colored treatment.
+        // Weather warning (display only), rideable-day hierarchy
+        // rain > cold > wind > normal (cold beats wind): cold = dimmed
+        // snowflake; windy = bike_fast; hot = bar alert color applied to
+        // whichever glyph shows (incl. bike_fast / rain).
         active: root.dayStates[index].hot
         activeColor: root.hotColor
         // New-install QoL (mirrors bom-weather's "location not set" hint):

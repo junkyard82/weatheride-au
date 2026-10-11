@@ -16,6 +16,7 @@ One glyph per day in the bar answers the question at a glance: which day is a go
 - A dimmed **rain** glyph; too wet to ride
 - A **colored** bike; too hot to ride
 - A **snowflake** glyph; too cold to ride
+- A **fast bike** glyph; too windy to ride
 
 ---
 
@@ -23,7 +24,7 @@ One glyph per day in the bar answers the question at a glance: which day is a go
 
 Omarchy Quattro (`with omarchy-shell`) 
 An Australian location; the BOM forecasts Australia only
-The BOM API data requites no account or API key
+The BOM API data requires no account or API key
 
 ---
 
@@ -39,7 +40,7 @@ The widget defaults to the center bar. Move it with `omarchy bar move` - or just
 
 ## Setup
 
-Tell it where you are — a suburb, town or postcode:
+Tell it where you are with a suburb, town or postcode:
 
 ```bash
 omarchy bar set io.github.junkyard82.weatheride-au location "Brighton VIC"
@@ -59,7 +60,7 @@ For Example: Four states have a Brighton, so add the state ("Brighton VIC") or u
 
 ## Settings
 
-Settings are edited in the panel (rain chance, rainfall amount, max/min temp, ride window, day count), written on close to the widget's own config file:
+Settings are edited in the panel (rain chance, rainfall amount, max/min temp, wind gust, ride window, day count), written on close to the widget's own config file:
 
 ```
 ~/.local/state/omarchy/settings/weatheride-au.json
@@ -95,7 +96,7 @@ rm -rf ~/.local/state/omarchy/weatheride-au ~/.local/state/omarchy/settings/weat
 ## Privacy & security
 
 - The only network endpoint is `https://api.weather.bom.gov.au` — the public, keyless API behind the Bureau's own app and website. Nothing about you is sent beyond the location you configured; there is no IP geolocation. The only file written is the response cache above.
-- The API is unofficial, undocumented, and its responses carry a BOM copyright notice reserving the data service. It has been around for years and an ecosystem of open-source clients reads it, but there is no guarantee it will be round in the future. The bridge sends an honest User-Agent and the refresh cadence keeps usage well below what the BOM app itself generates.
+- The API is unofficial, undocumented, and its responses carry a BOM copyright notice reserving the data service. It has been around for years and an ecosystem of open-source clients reads it, but there is no guarantee it will be around in the future. The bridge sends an honest User-Agent and the refresh cadence keeps usage well below what the BOM app itself generates.
 - `bin/bom-api` is ~400 lines of bash. Read it before you enable the plugin, as with any Omarchy plugin.
 - Omarchy plugins run in the user's shell process and are not sandboxed.
 

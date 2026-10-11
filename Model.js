@@ -16,7 +16,9 @@
 //     "windowEndHour": <number 0–23, exclusive>,
 //     "dayCount": <number 1–7, days shown after today>,
 //     "maxTempThreshold": <int 20–50, °C — "hot" if day max temp >= it>,
-//     "minTempThreshold": <int -10–10, °C — "cold" if day min temp <= it> }
+//     "minTempThreshold": <int -10–10, °C — "cold" if day min temp <= it>,
+//     "windGustThreshold": <int 10–80, km/h — "windy" if the day's max
+//       wind gust within the ride window >= it (default 30)> }
 
 // Rain-day rules (two-tier, see AGENTS.md "Active plan"). A day is a RAIN
 // day iff BOTH hold (AND):
@@ -46,9 +48,19 @@
 //  - missing/null temp is treated as not met (never fabricates a warning);
 //    a fully covered window whose hours all lack temp values falls back to
 //    the whole-day value.
+//
+// Wind warning (added 2026-10-11): each day carries a `windy` boolean once
+// the windGustThreshold is met — never ride-blocking, display-only, glyph
+// swap (bike -> bike_fast) in the QML. BOM's daily aggregates have NO wind,
+// so there is no whole-day fallback: windy is true only for days whose ride
+// window is fully covered by the hourly data (the same window-coverage test
+// as rain chance / temps). Max gust = the max hourly wind.gust_speed_kilom-
+// etre over [windowStartHour, windowEndHour); missing/null gust in a covered
+// hour is skipped (mirrors the temp rule). `windy = maxGust >= windGust-
+// Threshold` (default 30 km/h). Far days (no hourly) are never windy.
 
 function defaultConfig() {
-  return { rainProbabilityThreshold: 5, rainAmountThreshold: 0, windowStartHour: 6, windowEndHour: 20, dayCount: 5, maxTempThreshold: 35, minTempThreshold: 5 }
+  return { rainProbabilityThreshold: 5, rainAmountThreshold: 0, windowStartHour: 6, windowEndHour: 20, dayCount: 5, maxTempThreshold: 35, minTempThreshold: 5, windGustThreshold: 30 }
 }
 
 // Merge a raw config (JSON string or object) over the defaults.
@@ -60,6 +72,7 @@ function defaultConfig() {
 //   - dayCount: finite number, rounded, clamped 1–7
 //   - maxTempThreshold: finite number, rounded, clamped 20–50 (else 35)
 //   - minTempThreshold: finite number, rounded, clamped -10–10 (else 5)
+//   - windGustThreshold: finite number, rounded, clamped 10–80 (else 30)
 // Unknown keys are ignored. Always returns a fresh object.
 function parseConfig(raw) {
   var cfg = defaultConfig()
@@ -94,6 +107,8 @@ function parseConfig(raw) {
     cfg.maxTempThreshold = Math.min(50, Math.max(20, Math.round(data.maxTempThreshold)))
   if (typeof data.minTempThreshold === "number" && isFinite(data.minTempThreshold))
     cfg.minTempThreshold = Math.min(10, Math.max(-10, Math.round(data.minTempThreshold)))
+  if (typeof data.windGustThreshold === "number" && isFinite(data.windGustThreshold))
+    cfg.windGustThreshold = Math.min(80, Math.max(10, Math.round(data.windGustThreshold)))
   return cfg
 }
 
@@ -106,7 +121,7 @@ function emptyDayStates(dayCount) {
       : 5
   var out = []
   for (var i = 0; i < n; i++)
-    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false, hot: false, cold: false })
+    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false, hot: false, cold: false, windy: false })
   return out
 }
 
@@ -163,6 +178,8 @@ function computeDayStates(raw, config) {
       d.maxTempThreshold = Math.min(50, Math.max(20, Math.round(config.maxTempThreshold)))
     if (typeof config.minTempThreshold === "number" && isFinite(config.minTempThreshold))
       d.minTempThreshold = Math.min(10, Math.max(-10, Math.round(config.minTempThreshold)))
+    if (typeof config.windGustThreshold === "number" && isFinite(config.windGustThreshold))
+      d.windGustThreshold = Math.min(80, Math.max(10, Math.round(config.windGustThreshold)))
   }
   var threshold = d.rainProbabilityThreshold
   var amountThreshold = d.rainAmountThreshold
@@ -170,6 +187,7 @@ function computeDayStates(raw, config) {
   var endHour = d.windowEndHour
   var hotThreshold = d.maxTempThreshold
   var coldThreshold = d.minTempThreshold
+  var windThreshold = d.windGustThreshold
 
   var parsed
   try {
@@ -197,12 +215,14 @@ function computeDayStates(raw, config) {
       if (!t) continue
       var ld = t.getFullYear() + "-" + pad2(t.getMonth() + 1) + "-" + pad2(t.getDate())
       var lh = t.getHours()
-      if (!byDate[ld]) byDate[ld] = { hours: {}, chances: {}, temps: {} }
+      if (!byDate[ld]) byDate[ld] = { hours: {}, chances: {}, temps: {}, gusts: {} }
       byDate[ld].hours[lh] = true
       var hr = he.rain && typeof he.rain === "object" ? parseFloat(he.rain.chance) : NaN
       if (!isNaN(hr)) byDate[ld].chances[lh] = hr
       var tp = parseFloat(he.temp)
       if (!isNaN(tp)) byDate[ld].temps[lh] = tp
+      var gs = he.wind && typeof he.wind === "object" ? parseFloat(he.wind.gust_speed_kilometre) : NaN
+      if (!isNaN(gs)) byDate[ld].gusts[lh] = gs
       haveHourly = true
     }
   }
@@ -242,6 +262,25 @@ function computeDayStates(raw, config) {
     return { max: max === -Infinity ? NaN : max, min: min === Infinity ? NaN : min }
   }
 
+  // Max wind gust in the ride window for a day (wind warning, 2026-10-11):
+  // the max hourly wind.gust_speed_kilometre over [startHour, endHour) of
+  // that local day, but ONLY if every window hour is present — else NaN. A
+  // covered hour without a gust value is skipped; a covered window with no
+  // gust values at all is NaN (never a fabricated warning). There is NO
+  // daily/warnings fallback: BOM's daily aggregates carry no wind, so a day
+  // outside the hourly reach is never windy (see header comment).
+  function windowGustFor(localDate) {
+    var bucket = byDate[localDate]
+    if (!bucket) return NaN
+    var max = -1
+    for (var h = startHour; h < endHour; h++) {
+      if (bucket.hours[h] !== true) return NaN   // an in-window hour is missing
+      var g = bucket.gusts[h]
+      if (g !== undefined && g > max) max = g
+    }
+    return max >= 0 ? max : NaN
+  }
+
   var states = []
   for (var day = 1; day <= d.dayCount; day++) {
     var entry = daily[day]
@@ -278,6 +317,11 @@ function computeDayStates(raw, config) {
     var hot = !isNaN(maxT) && maxT >= hotThreshold
     var cold = !isNaN(minT) && minT <= coldThreshold
 
+    // Wind (two-tier, window-only — no whole-day fallback): the max gust in
+    // a fully covered window, else not windy. Missing/null gust → not met.
+    var windowGust = haveHourly ? windowGustFor(localDate) : NaN
+    var windy = !isNaN(windowGust) && windowGust >= windThreshold
+
     states.push({
       date: localDate,
       rideable: !rainy,
@@ -285,7 +329,8 @@ function computeDayStates(raw, config) {
       maxProb: isNaN(chanceUsed) ? -1 : chanceUsed,   // chance actually used
       hasData: true,
       hot: hot,
-      cold: cold
+      cold: cold,
+      windy: windy
     })
   }
   return states
