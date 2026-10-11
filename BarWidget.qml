@@ -30,13 +30,14 @@ import "Model.js" as Model
 // io.github.junkyard82.weatheride-au location "Brighton VIC"` — read via the base
 // setting() helper (no omarchy.weather file dependency).
 // Glyphs: rideable = "\u{F00A3}" (md-bike)
+//         cold     = "\u{F0717}" (nf-md-snowflake) — cold day, no color change
 //         rain     = "\u{E318}"  (nf-weather-rain), dimmed
 //         no data  = "\u{F4C3}"  (nf-oct-dot), dimmed — pre-fetch default
 // Glyph colors: normal = bar foreground; hot day = bar alert color
-// (bar.urgent); cold day = the theme colors.toml `blue` slot (color4/cyan/
-// accent fallbacks, re-read on theme swap — home-lab-mon's ThemeColors
-// mechanism). Temperature warnings are display-only and never
-// ride-blocking; rain+hot / rain+cold keep the dimmed treatment.
+// (bar.urgent). Temperature warnings are display-only and never
+// ride-blocking; a cold day swaps the bike for a snowflake glyph (glyph
+// change, not a color change); rain+hot keeps the dimmed colored
+// treatment, rain+cold a dimmed plain rain glyph.
 // Pure logic (rain rule, config, weekday, tooltip, BOM date parsing) lives
 // in Model.js; this file keeps only the stateful QML.
 
@@ -45,6 +46,7 @@ BarWidget {
   moduleName: "io.github.junkyard82.weatheride-au"
 
   readonly property string rideGlyph: "\u{F00A3}"
+  readonly property string snowGlyph: "\u{F0717}"  // nf-md-snowflake, cold day
   readonly property string rainGlyph: "\u{E318}"
   readonly property string unknownGlyph: "\u{F4C3}"   // nf-oct-dot, no data loaded yet
 
@@ -55,45 +57,9 @@ BarWidget {
   // The forked bridge (bundled with this plugin — independent of bom-weather).
   readonly property string scriptPath: String(Qt.resolvedUrl("bin/bom-api")).replace(/^file:\/\//, "")
 
-  // Temperature warning colors (display only, never ride-blocking): hot =
-  // the bar's alert color; cold = the theme's colors.toml `blue` slot
-  // (fallback color4 -> cyan -> theme accent). The shell's Color singleton
-  // only exposes foreground/background/accent/urgent/muted, so the cold
-  // token is parsed from the raw colors.toml the same way
-  // io.github.junkyard82.home-lab-mon does. theme.name is watched too:
-  // `omarchy theme set` swaps the current/theme directory atomically, which
-  // can leave the colors.toml watch dead; theme.name is rewritten in place
-  // right after the swap, so a change there re-reads the palette.
+  // Temperature warning color (display only, never ride-blocking): hot =
+  // the bar's alert color. (Cold is a glyph swap, not a color: snowflake.)
   readonly property color hotColor: root.bar ? root.bar.urgent : Color.urgent
-  property color coldColor: Color.accent
-
-  function coldColorFromTheme(raw) {
-    var kv = {}
-    var lines = String(raw || "").split("\n")
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/)
-      if (m) kv[m[1]] = m[2]
-    }
-    return kv.blue || kv.color4 || kv.cyan || Color.accent
-  }
-
-  FileView {
-    id: themeColorsFile
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.coldColor = root.coldColorFromTheme(text())
-    onFileChanged: themeColorsFile.reload()
-    onLoadFailed: root.coldColor = Color.accent
-  }
-  FileView {
-    id: themeNameFile
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme.name"
-    watchChanges: true
-    printErrors: false
-    onLoaded: themeColorsFile.reload()
-    onFileChanged: themeColorsFile.reload()
-  }
 
   // STEP 4: per-day state. Index 0 = tomorrow … N-1 = day+N (N =
   // config.dayCount, 1–7, default 5). Each entry:
@@ -311,13 +277,16 @@ BarWidget {
         required property int index
         bar: root.bar
         text: root.dayStates[index].hasData
-             ? (root.dayStates[index].rideable ? root.rideGlyph : root.rainGlyph)
+             ? (root.dayStates[index].rideable
+                  ? (root.dayStates[index].cold ? root.snowGlyph : root.rideGlyph)
+                  : root.rainGlyph)
              : root.unknownGlyph
         dimmed: !root.dayStates[index].hasData || !root.dayStates[index].rideable
-        // Temperature warning (display only): hot = bar alert color, cold =
-        // theme blue; rain+hot / rain+cold keep the dimmed treatment above.
-        active: root.dayStates[index].hot || root.dayStates[index].cold
-        activeColor: root.dayStates[index].hot ? root.hotColor : root.coldColor
+        // Temperature warning (display only): hot = bar alert color; cold =
+        // swaps the bike for a snowflake glyph (no color change); rain+hot /
+        // rain+cold keep the dimmed treatment above.
+        active: root.dayStates[index].hot
+        activeColor: root.hotColor
         // New-install QoL (mirrors bom-weather's "location not set" hint):
         // with no location configured the tooltip says so instead of showing
         // the placeholder; the panel (left-click) has the setup command.

@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "author": "junkyard82",
   "license": "MIT",
-  "description": "Bar widget showing which of the next 1-7 days (default 5) are good days to ride to work, using whole-day Australian Bureau of Meteorology rain data (chance of rain AND total rainfall). Fork of weatheride, independent of other plugins.",
+  "description": "Bar widget showing which of the next 1-7 days are good days to ride, using Australian Bureau of Meteorology data.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "weatheride-au",
-    "description": "Good days to ride to work, next 1-7 days (default 5), from whole-day BOM rain data (chance of rain AND total rainfall). Australia only.",
+    "description": "Bar widget showing which of the next 1-7 days are good days to ride, using Australian Bureau of Meteorology data.",
     "category": "Info",
     "defaultSection": "center",
     "allowMultiple": false,

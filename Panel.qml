@@ -73,9 +73,10 @@ Panel {
     return false
   }
 
-  // Same three glyphs as the bar dots (shared visual decisions; the
+  // Same four glyphs as the bar dots (shared visual decisions; the
   // code points are deliberately duplicated — no cross-file QML state).
   readonly property string rideGlyph: "\u{F00A3}"
+  readonly property string snowGlyph: "\u{F0717}"  // nf-md-snowflake, cold day
   readonly property string rainGlyph: "\u{E318}"
   readonly property string unknownGlyph: "\u{F4C3}"
 
@@ -92,12 +93,6 @@ Panel {
   // day's max temp >= maxTemp, cold if the day's min temp <= minTemp.
   property var maxTemp: 35     // °C, 20–50
   property var minTemp: 5      // °C, -10..10
-  // Live bound to the bar widget's coldColor (the theme colors.toml `blue`
-  // slot the bar resolves). A binding through the injected hostWidget, NOT
-  // a one-shot copy: the old injectPanel copy froze the preview at the
-  // pre-load Color.accent fallback (red-orange on this theme) while the bar
-  // dots had already resolved the theme blue — fixed 2026-10-09.
-  property color coldColor: root.hostWidget ? root.hostWidget.coldColor : Color.accent
   // True once a slider has moved since open(); close() commits only when
   // dirty, so an unedited open→close writes nothing (no file churn, no
   // spurious bar "config applied" lines).
@@ -200,22 +195,21 @@ Panel {
   function previewGlyph(index) {
     var s = root.previewStates[index]
     if (!s || !s.hasData) return root.unknownGlyph
-    return s.rideable ? root.rideGlyph : root.rainGlyph
+    return s.rideable ? (s.cold ? root.snowGlyph : root.rideGlyph) : root.rainGlyph
   }
   function previewDim(index) {
     var s = root.previewStates[index]
     return !s || !s.hasData || !s.rideable
   }
-  // Mirrors the bar dots' color priority (rain > hot > cold > normal): hot
-  // = bar alert color, cold = theme blue (root.coldColor), else bar
-  // foreground — applied regardless of rideable so rain+hot / rain+cold
-  // show the dimmed COLORED glyph exactly as the bar renders them (the
-  // dimming is the preview Text's opacity above).
+  // Mirrors the bar dots' color priority (rain > hot > normal): hot = bar
+  // alert color, else bar foreground — applied regardless of rideable so
+  // rain+hot shows the dimmed COLORED glyph exactly as the bar renders it
+  // (the dimming is the preview Text's opacity above). Cold is a glyph swap
+  // (snowflake), not a color change.
   function previewColor(index) {
     var s = root.previewStates[index]
     if (!s || !s.hasData) return root.bar.foreground
     if (s.hot) return root.bar.urgent
-    if (s.cold) return root.coldColor
     return root.bar.foreground
   }
 
@@ -660,10 +654,10 @@ Panel {
         PanelSeparator {}
 
         // ---------- Temperature warnings (display only) ----------
-        // Color the day's glyph — hot = bar alert color, cold = theme blue
-        // (root.coldColor, resolved by the bar from the theme's
-        // colors.toml). Never ride-blocking: the glyphs themselves are the
-        // same ride/rain/no-data ones, only the color changes.
+        // Color the day's glyph — hot = bar alert color. Cold swaps the
+        // glyph for a snowflake (no color change). Never ride-blocking: the
+        // glyphs themselves are the same ride/rain/no-data ones, and only
+        // the hot one changes color.
         PanelSectionHeader { text: "TEMP WARNINGS" }
 
         Column {
