@@ -199,7 +199,7 @@ Panel {
   }
   function previewDim(index) {
     var s = root.previewStates[index]
-    return !s || !s.hasData || !s.rideable
+    return !s || !s.hasData || !s.rideable || s.cold
   }
   // Mirrors the bar dots' color priority (rain > hot > normal): hot = bar
   // alert color, else bar foreground — applied regardless of rideable so

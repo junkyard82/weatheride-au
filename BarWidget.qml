@@ -281,10 +281,10 @@ BarWidget {
                   ? (root.dayStates[index].cold ? root.snowGlyph : root.rideGlyph)
                   : root.rainGlyph)
              : root.unknownGlyph
-        dimmed: !root.dayStates[index].hasData || !root.dayStates[index].rideable
+        dimmed: !root.dayStates[index].hasData || !root.dayStates[index].rideable || root.dayStates[index].cold
         // Temperature warning (display only): hot = bar alert color; cold =
-        // swaps the bike for a snowflake glyph (no color change); rain+hot /
-        // rain+cold keep the dimmed treatment above.
+        // swaps the bike for a dimmed snowflake glyph (dimmed like rain, no
+        // color change); rain+hot keeps the dimmed colored treatment.
         active: root.dayStates[index].hot
         activeColor: root.hotColor
         // New-install QoL (mirrors bom-weather's "location not set" hint):
