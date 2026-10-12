@@ -454,9 +454,9 @@ Panel {
           }
         }
 
-        // ---------- Forecast: one card per day (day name, glyph, rain %,
-        // max temp — vertical stack, detailed-weather style). Cards share
-        // the row width equally. ----------
+        // ---------- Forecast: one card per day (day name, glyph, max temp,
+        // min temp, rain % — vertical stack, detailed-weather style). Cards
+        // share the row width equally. ----------
         Row {
           id: forecastRow
           visible: root.location !== ""
@@ -499,14 +499,21 @@ Panel {
                 }
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: day.hasData && day.maxProb >= 0 ? Math.round(day.maxProb) + "%" : "–"
+                  text: day.hasData && !isNaN(day.maxT) ? Math.round(day.maxT) + "°" : "–"
                   color: root.bar.foreground
                   font.family: root.bar.fontFamily
                   font.pixelSize: Style.font.bodySmall
                 }
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  text: day.hasData && !isNaN(day.maxT) ? Math.round(day.maxT) + "°" : "–"
+                  text: day.hasData && !isNaN(day.minT) ? Math.round(day.minT) + "°" : "–"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: day.hasData && day.maxProb >= 0 ? Math.round(day.maxProb) + "%" : "–"
                   color: root.bar.foreground
                   font.family: root.bar.fontFamily
                   font.pixelSize: Style.font.bodySmall
