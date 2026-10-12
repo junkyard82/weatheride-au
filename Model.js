@@ -358,6 +358,28 @@ function formatTooltip(states) {
   }).join("\n")
 }
 
+// The BOM station the response's data comes from — the bridge's
+// observations.station (nearest station to the set location). Returns
+// { name, km } (km = distance from the set location, 0.1 km precision,
+// null when the Bureau didn't report a distance) or null when there is no
+// usable station (bad JSON, ok !== true, missing observations/station, or
+// no name). Panel-only: the bar never shows station data.
+function stationInfo(raw) {
+  var parsed
+  try {
+    parsed = JSON.parse(String(raw || ""))
+  } catch (e) {
+    return null
+  }
+  if (!parsed || typeof parsed !== "object" || parsed.ok !== true) return null
+  var st = parsed.observations && parsed.observations.station
+  if (!st || typeof st !== "object") return null
+  var name = String(st.name || "").replace(/^\s+|\s+$/g, "")
+  if (!name) return null
+  var metres = (typeof st.distance === "number" && isFinite(st.distance)) ? st.distance : null
+  return { name: name, km: metres === null ? null : Math.round(metres / 100) / 10 }
+}
+
 // NOTE (2026-09-06): weatheride's parseLocationFile is GONE — weatheride-au
 // reads its location from the widget's own shell.json setting
 // (`setting("location", ...)`), not from omarchy.weather's weather.json, so

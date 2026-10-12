@@ -196,6 +196,12 @@ Panel {
     var states = Model.computeDayStates(root.lastRaw, root.previewConfig)
     return states || Model.emptyDayStates(root.dayCount)
   }
+  // The BOM station the forecast data comes from (nearest station to the set
+  // location) — shown in place of the old separator under the title
+  // (mirrors bom-weather's panel). null until the first successful fetch;
+  // lastRaw persists between opens, so a reopened panel keeps the old
+  // station on screen until the new fetch lands.
+  readonly property var station: root.lastRaw ? Model.stationInfo(root.lastRaw) : null
 
   function previewGlyph(index) {
     var s = root.previewStates[index]
@@ -366,7 +372,26 @@ Panel {
           }
         }
 
-        PanelSeparator {}
+        // ---- Station line (replaces the old separator under the title, 2026-10-12):
+        // the BOM station the data comes from + its distance from the set
+        // location, dimmed caption — mirrors bom-weather's panel wording
+        // ("<name> station · <km> km away"). Hidden until the first fetch
+        // succeeds, and while the setup section shows (no location, no
+        // station — also keeps a stale station from a previous location from
+        // leaking through if the location is removed).
+        Text {
+          visible: root.location !== "" && root.station !== null
+          width: parent.width
+          text: root.station
+            ? root.station.name + " station"
+              + (root.station.km !== null ? " · " + root.station.km + " km away" : "")
+            : ""
+          color: root.bar.foreground
+          opacity: 0.5
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
 
         // ---- Setup: no location configured yet (new-install QoL, mirrors
         // bom-weather's "Location needed" section). The forecast preview is
