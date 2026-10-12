@@ -430,11 +430,6 @@ Panel {
         }
 
         // ---------- Live preview (same glyphs as the bar dots) ----------
-        PanelSectionHeader {
-          visible: root.location !== ""
-          text: "FORECAST"
-        }
-
         Row {
           visible: root.location !== ""
           spacing: Style.space(14)
@@ -484,8 +479,6 @@ Panel {
         PanelSeparator {}
 
         // ---------- Days shown (1–7, default 5) ----------
-        PanelSectionHeader { text: "DAYS SHOWN" }
-
         Column {
           width: parent.width
           spacing: Style.space(6)
@@ -544,8 +537,6 @@ Panel {
         PanelSeparator {}
 
         // ---------- Rain rules ----------
-        PanelSectionHeader { text: "RAIN RULES" }
-
         Column {
           width: parent.width
           spacing: Style.space(6)
@@ -666,8 +657,6 @@ Panel {
         // glyph for a snowflake (no color change). Never ride-blocking: the
         // glyphs themselves are the same ride/rain/no-data ones, and only
         // the hot one changes color.
-        PanelSectionHeader { text: "TEMP WARNINGS" }
-
         Column {
           width: parent.width
           spacing: Style.space(6)
@@ -781,8 +770,6 @@ Panel {
         // days are never windy). Display-only glyph swap bike -> bike_fast;
         // never ride-blocking. Hierarchy rain > cold > wind > normal (cold
         // beats wind); a hot day colors the windy glyph with bar.urgent.
-        PanelSectionHeader { text: "WIND" }
-
         Column {
           width: parent.width
           spacing: Style.space(6)
@@ -847,8 +834,6 @@ Panel {
         // window); elsewhere the whole-day chance is used. Amount stays
         // whole-day. The RangeSlider's two knobs can't cross, so start < end
         // is guaranteed — no clamp logic needed.
-        PanelSectionHeader { text: "RIDE WINDOW" }
-
         Column {
           width: parent.width
           spacing: Style.space(6)
