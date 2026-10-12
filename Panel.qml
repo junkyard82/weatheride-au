@@ -429,51 +429,66 @@ Panel {
           }
         }
 
-        // ---------- Live preview (same glyphs as the bar dots) ----------
+        // ---------- Forecast: one card per day (day name, glyph, rain %,
+        // max temp — vertical stack, detailed-weather style). Cards share
+        // the row width equally. ----------
         Row {
+          id: forecastRow
           visible: root.location !== ""
-          spacing: Style.space(14)
+          width: parent.width
+          spacing: Style.space(6)
 
           Repeater {
             model: root.previewStates.length
-            Column {
-              required property int index
-              spacing: Style.space(2)
 
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.previewGlyph(index)
-                color: root.previewColor(index)
-                opacity: root.previewDim(index) ? 0.35 : 1.0
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.heading
-              }
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.previewStates[index].hasData
-                     ? Model.weekday3(root.previewStates[index].date)
-                     : "–"
-                color: root.bar.foreground
-                opacity: 0.5
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.caption
+            Rectangle {
+              required property int index
+              readonly property var day: root.previewStates[index]
+
+              width: (forecastRow.width - forecastRow.spacing * (root.previewStates.length - 1)) / root.previewStates.length
+              height: forecastColumn.implicitHeight + Style.space(10)
+              radius: Style.cornerRadius
+              color: Style.normalFillFor(root.bar.foreground, Color.accent)
+
+              Column {
+                id: forecastColumn
+                anchors.centerIn: parent
+                width: parent.width
+                spacing: Style.space(2)
+
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: day.hasData ? Model.weekday3(day.date) : "–"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: root.previewGlyph(index)
+                  color: root.previewColor(index)
+                  opacity: root.previewDim(index) ? 0.35 : 1.0
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.icon
+                }
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: day.hasData && day.maxProb >= 0 ? Math.round(day.maxProb) + "%" : "–"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: day.hasData && !isNaN(day.maxT) ? Math.round(day.maxT) + "°" : "–"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
               }
             }
           }
-        }
-
-        // Raw per-day data, one line per day (same string as the bar
-        // tooltip; vertical). The panel grows with this: contentHeight fits
-        // the column's implicit height.
-        Text {
-          width: parent.width
-          horizontalAlignment: Text.AlignLeft
-          visible: root.previewStates[0].hasData && root.location !== ""
-          text: Model.formatTooltip(root.previewStates)
-          color: root.bar.foreground
-          opacity: 0.5
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.caption
         }
 
         PanelSeparator {}

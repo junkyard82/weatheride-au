@@ -48,6 +48,9 @@
 //  - missing/null temp is treated as not met (never fabricates a warning);
 //    a fully covered window whose hours all lack temp values falls back to
 //    the whole-day value.
+// - Each day also carries the numeric `maxT` actually used (window tier or
+//   whole-day daily[].temp_max; NaN when missing) — surfaced for the panel
+//   forecast cards (2026-10-16).
 //
 // Wind warning (added 2026-10-11): each day carries a `windy` boolean once
 // the windGustThreshold is met — never ride-blocking, display-only, glyph
@@ -121,7 +124,7 @@ function emptyDayStates(dayCount) {
       : 5
   var out = []
   for (var i = 0; i < n; i++)
-    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false, hot: false, cold: false, windy: false })
+    out.push({ date: "", rideable: false, mm: 0, maxProb: -1, hasData: false, hot: false, cold: false, windy: false, maxT: NaN })
   return out
 }
 
@@ -327,6 +330,7 @@ function computeDayStates(raw, config) {
       rideable: !rainy,
       mm: isNaN(amount) ? 0 : amount,          // whole-day total (amount.max)
       maxProb: isNaN(chanceUsed) ? -1 : chanceUsed,   // chance actually used
+      maxT: isNaN(maxT) ? NaN : maxT,           // temp used (window or daily), panel cards
       hasData: true,
       hot: hot,
       cold: cold,
