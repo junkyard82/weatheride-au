@@ -590,9 +590,19 @@ Panel {
 
           Row {
             width: parent.width
+            spacing: Style.space(6)
+            Text {
+              id: thresholdGlyph
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.rainGlyph
+              color: root.bar.foreground
+              opacity: 0.35
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.icon
+            }
             Text {
               id: thresholdLabel
-              width: parent.width - thresholdValue.implicitWidth
+              width: parent.width - thresholdValue.implicitWidth - thresholdGlyph.implicitWidth - parent.spacing * 2
               anchors.verticalCenter: parent.verticalCenter
               text: "Rain day if chance of rain ≥"
               color: root.bar.foreground
@@ -643,9 +653,19 @@ Panel {
           // chance rule alone decides.
           Row {
             width: parent.width
+            spacing: Style.space(6)
+            Text {
+              id: rainAmountGlyph
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.rainGlyph
+              color: root.bar.foreground
+              opacity: 0.35
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.icon
+            }
             Text {
               id: rainAmountLabel
-              width: parent.width - rainAmountValue.implicitWidth
+              width: parent.width - rainAmountValue.implicitWidth - rainAmountGlyph.implicitWidth - parent.spacing * 2
               anchors.verticalCenter: parent.verticalCenter
               text: "Rain day if total rain ≥"
               color: root.bar.foreground
@@ -710,9 +730,18 @@ Panel {
 
           Row {
             width: parent.width
+            spacing: Style.space(6)
+            Text {
+              id: maxTempGlyph
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.rideGlyph
+              color: root.bar.urgent
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.icon
+            }
             Text {
               id: maxTempLabel
-              width: parent.width - maxTempValue.implicitWidth
+              width: parent.width - maxTempValue.implicitWidth - maxTempGlyph.implicitWidth - parent.spacing * 2
               anchors.verticalCenter: parent.verticalCenter
               text: "Hot day if max temp ≥"
               color: root.bar.foreground
@@ -760,9 +789,19 @@ Panel {
 
           Row {
             width: parent.width
+            spacing: Style.space(6)
+            Text {
+              id: minTempGlyph
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.snowGlyph
+              color: root.bar.foreground
+              opacity: 0.35
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.icon
+            }
             Text {
               id: minTempLabel
-              width: parent.width - minTempValue.implicitWidth
+              width: parent.width - minTempValue.implicitWidth - minTempGlyph.implicitWidth - parent.spacing * 2
               anchors.verticalCenter: parent.verticalCenter
               text: "Cold day if min temp ≤"
               color: root.bar.foreground
@@ -823,9 +862,18 @@ Panel {
 
           Row {
             width: parent.width
+            spacing: Style.space(6)
+            Text {
+              id: windGlyph
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.windGlyph
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.icon
+            }
             Text {
               id: windLabel
-              width: parent.width - windValue.implicitWidth
+              width: parent.width - windValue.implicitWidth - windGlyph.implicitWidth - parent.spacing * 2
               anchors.verticalCenter: parent.verticalCenter
               text: "Windy day if max gust ≥"
               color: root.bar.foreground
