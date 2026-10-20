@@ -4,13 +4,13 @@
 
 Current version: **0.2.0**
 
-Weatheride tells you, *whether* you should ride, on the upcoming days; using the Australian Bureau of Meteorology (BOM) data. Simply set your location, number of forward looking days (1-7), ride window times, rain, heat, and cold tolerance. Solves the need for scrolling through the hourly weather data of upcoming days to find out if it's a good day to commute or head out for a ride. 
+Weatheride tells you, *whether* you should ride on the upcoming days using the Australian Bureau of Meteorology (BOM) data. Simply set your location, number of forward looking days (1-7), ride window times, rain, heat, and cold tolerance. Solves the need for scrolling through the hourly weather data of upcoming days to find out if it's a good day to commute or head out for a ride. 
 
 This Project is based on [`zuccs omarchy-bom-weather`](https://github.com/zuccs/omarchy-bom-weather)
 
 ![The weatheride-au bar row and settings panel: five day dots for the coming week, with the panel's threshold, rainfall and commute-window sliders](preview.png)
 
-One glyph per day in the bar answers the question at a glance: which day is a good day to ride? 
+One glyph per day in the bar answers the question at a glance; which day is a good day to ride? 
 
 - A **bike** is an ideal ride day
 - A dimmed **rain** glyph; too wet to ride
@@ -23,7 +23,7 @@ One glyph per day in the bar answers the question at a glance: which day is a go
 ## Requirements
 
 Omarchy Quattro (`with omarchy-shell`) 
-An Australian location; the BOM forecasts Australia only
+An Australian location; the BOM forecasts Australia only. 
 The BOM API data requires no account or API key
 
 ---
@@ -40,13 +40,13 @@ The widget defaults to the center bar. Move it with `omarchy bar move` - or just
 
 ## Setup
 
-Tell it where you are with a suburb, town or postcode:
+Tell it where you are with a suburb, town or postcode by running the follow in the terminal with your location:
 
 ```bash
 omarchy bar set io.github.junkyard82.weatheride-au location "Brighton VIC"
 ```
 
-For Example: Four states have a Brighton, so add the state ("Brighton VIC") or use the postcode ("3186") when a bare name is ambiguous; the first match wins. The name is resolved once against the Bureau's location search and cached indefinitely. Run the same line again to change location. Until a location is set, the bar shows the dimmed no-data dots and the panel surfaces the location setup hint.
+For Example: Four states have a Brighton, so add the state ("Brighton VIC") or use the postcode ("3186") when a bare name is ambiguous the first match wins. The name is resolved once against the Bureau's location search and cached indefinitely. Run the same line again to change location. Until a location is set, the bar shows the dimmed no-data dots and the panel surfaces the location setup hint.
 
 ---
 
@@ -54,7 +54,7 @@ For Example: Four states have a Brighton, so add the state ("Brighton VIC") or u
 
 - Days are judged from tomorrow (today is never shown).
 - **Near days** every hour of the configured window (default 06:00–20:00) is present, so the chance used is the **maximum hourly chance within the window** — "will it rain between 06:00 and 20:00?".
-- **Far days**: BOM data may have no hourly data there, so the **whole-day** chance is used honestly.
+- **Far days**: BOM data may have no hourly data so the **whole-day** chance is used honestly.
 
 ---
 
@@ -89,7 +89,7 @@ rm -rf ~/.local/state/omarchy/weatheride-au ~/.local/state/omarchy/settings/weat
 
 - **Cached, politely.** The last good response is cached in `~/.local/state/omarchy/weatheride-au/` (mode `0600`) by the bundled `bin/bom-api` bridge. If the network is down, the cached data stays and a retry is armed.
 - **No cached data on first load.** A cold start keeps the dimmed no-data dots until a **live** fetch succeeds. From then on last-good survives outages.
-- **Polling interval** First fetch 30s after start (boot network race), then every 2h. On failure: retry every 1 min.
+- **Polling interval** First fetch 30s after start (boot network race), then every 2 hr. On failure: retry every 1 min.
 
 ---
 
