@@ -40,13 +40,13 @@ The widget defaults to the center bar. Move it with `omarchy bar move` - or just
 
 ## Setup
 
-Tell it where you are with a suburb, town or postcode by running the follow in the terminal with your location:
+Tell it where you are with a suburb, town or postcode by running the following in the terminal, substituting your location:
 
 ```bash
 omarchy bar set io.github.junkyard82.weatheride-au location "Brighton VIC"
 ```
 
-For Example: Four states have a Brighton, so add the state ("Brighton VIC") or use the postcode ("3186") when a bare name is ambiguous the first match wins. The name is resolved once against the Bureau's location search and cached indefinitely. Run the same line again to change location. Until a location is set, the bar shows the dimmed no-data dots and the panel surfaces the location setup hint.
+For Example: Four states have a Brighton, so add the state ("Brighton VIC") or use the postcode ("3186") when a bare name is ambiguous; the first match wins. The name is resolved once against the Bureau's location search and cached indefinitely. Run the same line again to change location. Until a location is set, the bar shows the dimmed no-data dots and the panel surfaces the location setup hint.
 
 ---
 
@@ -89,7 +89,7 @@ rm -rf ~/.local/state/omarchy/weatheride-au ~/.local/state/omarchy/settings/weat
 
 - **Cached, politely.** The last good response is cached in `~/.local/state/omarchy/weatheride-au/` (mode `0600`) by the bundled `bin/bom-api` bridge. If the network is down, the cached data stays and a retry is armed.
 - **No cached data on first load.** A cold start keeps the dimmed no-data dots until a **live** fetch succeeds. From then on last-good survives outages.
-- **Polling interval** First fetch 30s after start (boot network race), then every 2 hr. On failure: retry every 1 min.
+- **Polling interval:** First fetch 30s after start (boot network race), then every 2 hr. On failure: retry every 1 min.
 
 ---
 
